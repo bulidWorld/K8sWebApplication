@@ -1,0 +1,23 @@
+{
+  "name": "k8s-operations-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/dev.js",
+    "build": "vite build",
+    "start": "node --env-file=.env server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "2.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.7"
+  }
+}

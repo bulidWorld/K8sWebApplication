@@ -1,0 +1,20 @@
+# Optional: bind this role to the identity used by your dedicated kubeconfig.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescope-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods", "services", "events", "persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list"]
+  - nonResourceURLs: ["/version"]
+    verbs: ["get"]

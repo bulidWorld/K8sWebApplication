@@ -1,0 +1,11 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubescope-deployment-editor
+  namespace: onlyoffice
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, patch]
+# Bind this additional Role to the actual kubeconfig user or ServiceAccount.
+# Existing read permissions for the console are managed separately.

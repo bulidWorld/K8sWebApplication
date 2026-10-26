@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+coverage/
+releases/
+
+# Local cluster credentials
+kubeconfig
+.env.*
+!.env.local.example
