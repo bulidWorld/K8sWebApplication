@@ -11,21 +11,21 @@
 - Pod 日志：切换普通/初始化/临时容器、最近 100–5000 行、上次实例、每 5 秒刷新、下载；每次日志请求最大 1 MiB。
 - 手动刷新或每 15 秒刷新资源。明确展示连接、RBAC、超时、空列表等状态。
 - Deployment 第一期配置：镜像与版本、环境变量与 Secret/ConfigMap 引用、CPU/内存与副本数、HTTP/HTTPS 健康检查；模块独立预览和提交，支持多容器选择、并发版本检测、发布状态刷新。
-- 资源白名单、请求超时、可选访问令牌。写入仅限 Deployment 四个配置模块，没有删除、exec 或任意命令接口。
+- 资源白名单、请求超时、可选访问令牌。默认提供 Deployment 四个配置模块写入；页面初始化后可启用内置任务引擎，支持固定流程的 Worker 扩容，没有删除、exec 或任意命令接口。
 
 CPU/内存展示的是节点 allocatable 容量，不是实时用量，不依赖 metrics-server。
 
 ## 环境要求
 
 - Node.js >= 22.12（建议使用 Node.js 24）和 npm。
-- 服务运行用户能够读取 kubeconfig 并访问集群 API Server，无需安装 kubectl。
+- 生产 Web 服务以 root 运行，能够读取 kubeconfig 并访问集群 API Server；启用扩容时 master 还需 kubeadm、kubectl 和 SSH。
 - 默认继承该用户的 kubeconfig、当前 context，可用 `KUBECONFIG` 指定独立配置。
 
 ```bash
 npm ci
 npm run build
 npm test
-KUBECONFIG=/path/to/readonly-kubeconfig npm start
+sudo env KUBECONFIG=/path/to/kubeconfig "$(command -v node)" --env-file=.env server/index.js
 ```
 
 打开 `http://127.0.0.1:3000`。开发模式使用 `npm run dev`，浏览器打开 `http://127.0.0.1:5173`，Vite 将 `/api` 代理给本地后端。
@@ -49,7 +49,7 @@ ssh -L 3000:127.0.0.1:3000 user@master
 需要监听网络地址时必须配置令牌：
 
 ```bash
-HOST=0.0.0.0 PORT=3000 K8S_WEB_TOKEN='replace-with-a-long-random-token' npm start
+sudo env HOST=0.0.0.0 PORT=3000 K8S_WEB_TOKEN='replace-with-a-long-random-token' "$(command -v node)" --env-file=.env server/index.js
 ```
 
 打开控制台的「连接设置」，填入同一个令牌。令牌只保留在页面内存，刷新页面后需要重新输入。通过网络提供服务时，应在前面配置 HTTPS 反向代理并限制可访问来源；令牌通过 Authorization 请求头传输。前端静态文件可公开读取，全部 `/api/` 接口均要求令牌（若已配置），包括配置更新；本项目不提供多用户权限管理，共享访问令牌的用户具有相同操作权限，最终权限由后端 kubeconfig 的 RBAC 决定。
@@ -69,9 +69,15 @@ HOST=0.0.0.0 PORT=3000 K8S_WEB_TOKEN='replace-with-a-long-random-token' npm star
 
 ## Ubuntu / master 节点部署
 
-完整步骤见 [DEPLOYE.md](DEPLOYE.md)。在本地执行 `bash package.sh` 完成依赖安装、测试和构建，将 `releases/` 中的部署包上传服务器，解压到 `/opt/kubescope`，无需在服务器安装 npm 依赖或构建源码。
+完整步骤见 [DEPLOYE.md](DEPLOYE.md)。在本地执行 `bash package.sh` 完成依赖安装、测试和构建，将 `releases/` 中的部署包上传服务器，解压后目录自带版本号，例如 `/opt/kubescope-1.0.0`，无需在服务器安装 npm 依赖或构建源码。
 
-systemd 模板使用现有 `zhiwenxia` 用户运行，复用该用户可用的 kubeconfig。按实际环境配置 Node.js 的绝对路径，以及 `/opt/kubescope/.env` 中的 `KUBECONFIG`。systemd 不加载交互式 shell 配置，需显式设置相关环境变量。
+打包后可运行 `bash remote_deploye.sh`，自动将最新构建包上传到 `192.168.100.132`，解压并通过 sudo 执行 deploy.sh。默认 SSH 用户为 `zhiwenxia`，可用 `--user` 修改；`--dry-run` 可先预览而不连接远端。升级时保留旧配置和扩容数据，完整参数见 `bash remote_deploye.sh --help`。
+
+systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行，无需独立执行器服务。按实际环境配置 Node.js 的绝对路径，以及 解压目录中的 `.env` 中的 `KUBECONFIG`。systemd 不加载交互式 shell 配置，需显式设置相关环境变量。
+
+## 节点扩容
+
+节点页面提供“添加节点”：首次在页面自动识别并保存集群参数，填写新机器 IP、SSH 用户并核对指纹，输入登录密码和 sudo 密码后点击开始，即可自动预检、安装并入群。Web 以 root 运行，后台自动创建配置目录与文件，无需手动复制 JSON 或部署独立执行器。密码仅用于当前任务，不落盘。详见 [节点扩容说明](deploy/EXPANSION.md)。
 
 ## HTTP API
 

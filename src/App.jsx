@@ -6,6 +6,7 @@ import ResourceDialog from "./components/ResourceDialog.jsx";
 import OverviewPage from "./pages/OverviewPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
 
+import NodeExpansion from "./components/NodeExpansion.jsx";
 import SidebarNav from './components/SidebarNav.jsx';
 import { deploymentModuleTitles } from './lib/navigation.js';
 
@@ -234,6 +235,7 @@ export default function App() {
               </span>
             </div>
           </div>
+          {section === "nodes" && <NodeExpansion token={token} onUpdated={() => setRefresh(n => n + 1)} />}
           {section === "overview" ? (
             <OverviewPage data={data} errors={errors} loading={loading} namespace={namespace} navigate={navigate} open={open} />
           ) : (

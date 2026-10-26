@@ -91,7 +91,7 @@ test('Kubernetes PATCH 传输使用 JSON Patch、认证和真实错误状态', a
   });
   const base = await listening(upstream);
   try {
-    const config = new KubeConfig(); config.loadFromOptions({ clusters: [{ name: 'test', server: base }], users: [{ name: 'test', token: 'cluster-token' }], contexts: [{ name: 'test', cluster: 'test', user: 'test' }], currentContext: 'test' });
+    const config = new KubeConfig(); config.loadFromOptions({ clusters: [{ name: 'test', server: base, skipTLSVerify: true }], users: [{ name: 'test', token: 'cluster-token' }], contexts: [{ name: 'test', cluster: 'test', user: 'test' }], currentContext: 'test' });
     const patch = [{ op: 'test', path: '/metadata/resourceVersion', value: '1' }];
     await assert.rejects(createKubernetes({ config }).request('/test', true, patch), { status: 409 });
     assert.deepEqual(received, { method: 'PATCH', contentType: 'application/json-patch+json', auth: 'Bearer cluster-token', body: patch });

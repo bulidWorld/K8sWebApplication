@@ -1,294 +1,122 @@
-# Ubuntu 部署指南
+# Ubuntu / master 部署指南
 
-本文采用“本地构建打包 → 上传 → 服务器解压运行”的方式部署 KubeScope，使用 systemd 管理进程，支持开机自启和异常重启，**不需要 PM2**。
+KubeScope 由 React 前端和 Node.js 后端组成，生产共用一个端口。Web 服务以 root 运行，节点扩容任务直接在后端执行，不再单独部署执行器。
 
-应用由 React 前端和 Node.js 后端组成，生产环境共用 3000 端口，无需单独运行 Vite，也无需数据库或 Docker。
+## 1. 环境
 
-## 1. 部署前提
+- 本地构建机器：Node.js >=22.12、npm、Bash、tar。
+- master：Node.js >=22.12，可读的 kubeconfig。
+- 启用扩容时，master 还需 `/usr/bin/ssh`、`/usr/bin/kubeadm`、`/usr/bin/kubectl`，目标版本与 kubeadm 集群匹配。
+- 新节点需要 Ubuntu、SSH、可用网络，Kubernetes 组件由扩容流程安装。
 
-- 有可访问的 Kubernetes 集群；本指南不包含创建集群。
-- 本地构建机器安装 Node.js >= 22.12、npm、Bash 和 tar，能下载 npm 依赖。
-- Ubuntu 服务器有 sudo 权限，已安装 Node.js >= 22.12，并能访问集群 API Server。
-- 服务器无需安装 npm 依赖、拉取源码或执行前端构建。
-- 使用现有 `zhiwenxia` 用户运行服务，复用该用户已经可用的集群配置。
-- 服务可以部署在独立服务器上，不必安装到 Kubernetes master 节点。
+systemd 不加载交互 shell 配置，Node、kubeconfig 及认证插件须使用实际路径。Node 二进制、应用代码和父目录由 root 管理，普通用户不可写。
 
-除特别说明外，以下命令都在 Ubuntu 服务器执行。示例中的文件名、版本、服务器地址及用户名需要替换为实际值。
+## 2. 本地打包
 
-## 2. 安装基础依赖和 Node.js
-
-```bash
-sudo apt update
-sudo apt install -y ca-certificates curl tar openssl
-```
-
-项目要求 Node.js >= 22.12，建议使用 Node.js 24 LTS。
-
-## 3. 检查集群访问配置
-
-应用通过 Kubernetes API 直接查询集群，无需安装 kubectl。准备服务用户可读的 kubeconfig，并确保能访问其中的 API Server 地址。客户端支持 CA、客户端证书和令牌；若 kubeconfig 使用 exec 认证插件，还需安装相应认证程序并配置环境变量。
-
-systemd 不会加载 `.bashrc`，需要按第 5、6 节显式配置 `KUBECONFIG`、`PATH` 或云认证环境变量。
-
-## 4. 本地打包、上传与解压
-
-### 本地构建机器执行
-
-在项目根目录确认 `.env` 中的服务器路径及端口正确，再运行：
+在本地准备 `.env`，然后：
 
 ```bash
 bash package.sh
 ```
 
-脚本依次执行 `npm ci --include=dev`、`npm test`、`npm run build`，任一步失败都会停止。成功后在 `releases/` 生成带版本号和 UTC 时间的压缩包，例如 `kubescope-1.0.0-20261023T120000Z.tar.gz`。也可执行 `bash package.sh /path/to/output` 指定输出目录。
+脚本安装依赖、测试、构建，将 dist、server、生产依赖、deploy 模板和脚本打入 releases 下的压缩包。服务器无需 npm install 或构建。部署包含 `.env` 中的令牌，应妥善保存；不含 Node、kubeconfig 或 SSH 密钥。
 
-部署包结构如下：
+## 一键上传并远程部署
 
-```text
-kubescope/
-├── dist/                # 已构建的前端
-├── server/
-│   ├── index.js         # 生产服务
-│   └── kubernetes.js
-├── deploy/              # systemd 配置和只读 RBAC
-├── node_modules/        # 已安装的生产依赖
-├── package-lock.json
-├── package.json         # 包含 type: module，运行时需要保留
-├── deploy.sh            # 安装或更新 systemd 服务并重启
-├── start.sh             # 启动服务
-├── stop.sh              # 停止服务
-├── .env                 # 部署配置，包含访问令牌
-└── DEPLOYE.md
-```
-
-生产后端使用官方 `@kubernetes/client-node` 加载配置及认证，直接通过 API 查询集群。打包脚本在暂存目录安装并包含生产依赖，服务器不需要执行 `npm install`。包内不包含 Node.js 或 kubeconfig，但包含本地 `.env` 及其中的访问令牌，请妥善保存部署包。`.env` 已被 Git 忽略。
-
-上传生成的压缩包（文件名替换为实际值）：
+本地运行 `bash package.sh` 生成构建包后：
 
 ```bash
-scp releases/kubescope-1.0.0-20261023T120000Z.tar.gz zhiwenxia@k8s-master:/tmp/
+bash remote_deploye.sh --dry-run
+bash remote_deploye.sh
 ```
 
-### 首次部署时，在服务器执行
+默认选择脚本旁 `releases/` 中最后修改的 `kubescope-版本-构建时间.tar.gz`，上传到 `zhiwenxia@192.168.100.132:22`。先校验包结构和 SHA256，上传到远端私有临时目录，随后在终端通过 sudo 执行远端安装流程和解压后的 deploy.sh。按当前部署要求，脚本内预设了该主机的默认认证密码，自动完成 SSH 和 sudo 认证；可通过 DEPLOY_PASSWORD/SUDO_PASSWORD 覆盖。SSH 密码通过本地 0600 临时文件交给 ASKPASS，退出清理；sudo 密码仅经 SSH 标准输入传递，不进入命令参数或远端文件。脚本明确禁用 ControlMaster、ControlPersist 和 ControlPath 连接复用，避免远端拒绝复用会话。通过一次独立 SCP 连接上传整个私有目录，再通过一次独立 SSH 连接执行 sudo 部署，默认自动认证，无需输入密码；将 DEPLOY_PASSWORD 和 SUDO_PASSWORD 都设为空时恢复交互提示。每一步都有进度输出；连接超时 15 秒，建立连接后每 15 秒探测存活，连续 3 次无响应则断开。远端临时文件在部署连接退出时清理。脚本不会自动构建，也不会自动接受未知 SSH 主机密钥。
+
+每次部署解压到 `/opt/kubescope-releases/构建包名.随机后缀/kubescope-版本/`，保留旧版本。脚本从旧 kubescope.service 获取运行目录和 Node 路径；没有旧服务时使用 root PATH 中的 Node。自定义示例：
 
 ```bash
-# 首次部署确认 /opt/kubescope 尚不存在；已有部署请使用第 10 节更新流程
-set -e
-sudo test ! -e /opt/kubescope
-sudo tar -xzf /tmp/kubescope-1.0.0-20261023T120000Z.tar.gz \
-  -C /opt --no-same-owner
-sudo chown -R root:root /opt/kubescope
+bash remote_deploye.sh --user youruser --identity ~/.ssh/id_ed25519
+bash remote_deploye.sh --node-bin /usr/bin/node --releases-dir ./releases
 ```
 
-如果第一条检查失败，请停止，不要直接覆盖已有目录。压缩包自带 `kubescope/` 顶层目录，解压后入口为 `/opt/kubescope/server/index.js`。
+SSH 用户需要能以 sudo 运行 bash。交互认证模式请从交互终端执行。`--help` 展示完整参数，host、port、remote-dir 也可指定。
 
-## 5. 复用 zhiwenxia 的集群配置
+升级时会检查旧服务是否存在进行中的扩容任务，存在则拒绝切换。停止旧服务后复用旧 `.env` 并复制 var 数据，自动迁移扩容配置中指向旧 var 的路径和审计日志路径；外部 kubeconfig、SSH 文件及旧版本目录保留原位。新部署失败会尝试恢复原 systemd 配置和旧服务，失败目录保留供排查；不要同时从页面发起新的扩容任务。脚本只支持现有 systemd kubescope 服务的自动迁移，手工后台启动的服务需先另行处理端口占用。
 
-不需要创建 `kubescope` 系统用户，也不需要复制 kubeconfig 或重新应用 RBAC。以 `zhiwenxia` 登录服务器后执行：
+## 3. 首次解压
+
+压缩包的顶层目录带 package.json 中的版本号，例如 `kubescope-1.0.0/`；压缩包文件名仍包含构建时间。上传压缩包后，在 master 执行，替换实际文件名及目录版本号：
 
 ```bash
-whoami
-printf 'HOME=%s\n' "$HOME"
-printf 'KUBECONFIG=%s\n' "${KUBECONFIG:-$HOME/.kube/config}"
-command -v node
-test -r "${KUBECONFIG:-$HOME/.kube/config}"
+sudo test ! -e /opt/kubescope-1.0.0
+sudo tar -xzf /tmp/kubescope-版本-时间.tar.gz -C /opt --no-same-owner
+sudo chown -R root:root /opt/kubescope-1.0.0
 ```
 
-确认 `whoami` 为 `zhiwenxia`。后续配置使用上面查到的实际路径。如果终端未设置 `KUBECONFIG`，默认使用 `/home/zhiwenxia/.kube/config`；如果设置了自定义路径或多个配置文件，原样写入应用环境文件，建议使用绝对路径。
+若目录已存在，请先备份并按更新流程处理，不直接覆盖正在运行的服务。
 
-应用会使用该用户已有的 Kubernetes 身份和权限，但应用接口仍只提供读取操作。`deploy/rbac.yaml` 保留在包内，当前流程无需应用。
+## 4. 配置
 
-## 6. 创建应用环境配置
-
-配置保存在应用目录的 `.env` 中，systemd 从 `/opt/kubescope/.env` 读取。本地项目已生成该文件和随机访问令牌，打包脚本会将其放入部署包，无需另外创建 `/etc` 环境文件。
-
-在本地打包前编辑 `.env`，按服务器实际路径填写：
+编辑 `/opt/kubescope-1.0.0/.env`：
 
 ```dotenv
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=3000
-KUBECONFIG=/home/zhiwenxia/.kube/config
-K8S_WEB_TOKEN=填写实际的随机令牌
+KUBECONFIG=/etc/kubernetes/admin.conf
+K8S_WEB_TOKEN=替换为强随机令牌
+# 由 HTTPS 反向代理对外服务时设置实际页面来源
+# K8S_PUBLIC_ORIGIN=https://kubescope.example.com
 ```
 
-令牌必须是实际值，`.env` 不会执行 `$(openssl rand -hex 32)`。需要更换时，先执行 `openssl rand -hex 32`，再将输出填入文件。不要提交或公开此文件。
+原有 kubeconfig 也可使用绝对路径继续配置，无需放到 root HOME 中；确认 root 可读取其中引用的证书和认证程序。Kubernetes 身份和权限由该 kubeconfig 决定。
 
-解压后设置文件所有者及权限，以便 zhiwenxia 也可直接启动：
+首次扩容在页面点击“自动识别当前集群 → 保存并继续”，然后填写新机器参数、核对 SSH 指纹、输入登录密码和 sudo 密码，点击“添加并开始扩容”。目录和配置文件由后台自动创建，不需要 K8S_EXPANSION_CONFIG 或手动配置 SSH 密钥。详见 [页面扩容说明](deploy/EXPANSION.md)。
+
+## 5. 启动 root Web 服务
 
 ```bash
-sudo chown zhiwenxia /opt/kubescope/.env
-sudo chmod 600 /opt/kubescope/.env
+cd /opt/kubescope-1.0.0
+sudo bash deploy.sh
 ```
 
-如果使用认证插件，还需显式配置它依赖的 PATH 或云认证环境变量；请使用完整值，不要写 `$HOME`、`$PATH` 或 `~`。
-
-不使用 systemd 时，以 zhiwenxia 用户直接运行并加载相同配置：
+若 sudo PATH 中没有 Node：
 
 ```bash
-cd /opt/kubescope
-node --env-file=.env server/index.js
+sudo env NODE_BIN=/实际路径/node bash deploy.sh
 ```
 
-直接执行 `node server/index.js` 不会自动读取 `.env`。使用 systemd 时由 `EnvironmentFile` 负责加载，不需要添加 Node.js 参数。
-
-| 配置 | 说明 |
-| --- | --- |
-| `HOST` | 可省略，默认监听 `0.0.0.0`；监听非本地地址时，应用强制要求设置令牌 |
-| `PORT` | HTTP 端口，示例为 3000 |
-| `KUBECONFIG` | zhiwenxia 当前使用的 kubeconfig 路径 |
-| `K8S_WEB_TOKEN` | 网页 API 的访问令牌，与 Kubernetes 凭证是不同配置 |
-
-## 7. 首次部署和重复部署
-
-以 `zhiwenxia` 用户登录，在解压后的应用目录执行：
+脚本自动使用其所在目录作为运行目录，校验配置和 Node 版本，创建可写日志目录，安装 `kubescope.service`，以 root 身份启动，并设置开机自启。模板启用 ProtectSystem=strict，保留应用 var 目录和 `/var/lib/kubescope-expansion` 等状态目录可写。自定义审计或任务路径时，同步调整服务 ReadWritePaths。
 
 ```bash
-cd /opt/kubescope
-bash deploy.sh
-```
-
-不要对整个脚本使用 sudo。脚本会在需要管理系统服务或调整 `.env` 权限时调用 sudo，届时可能需要输入密码。
-
-`deploy.sh` 会检查部署文件、Node.js 版本、`.env` 必填项，以及生产依赖和 kubeconfig 的文件访问权限；自动检测当前终端的 Node.js 绝对路径，生成并安装 systemd 服务，设置开机自启，然后重启服务。不会在服务器安装 npm 依赖、构建源码或改动集群资源。
-
-脚本可重复执行：保留现有 `.env` 内容，更新服务配置并重启。修改 `.env` 或升级 Node.js 后也可重新执行。若需要指定其他 Node.js 路径：
-
-```bash
-NODE_BIN=/usr/local/bin/node bash deploy.sh
-```
-
-服务使用 `zhiwenxia` 用户和部署时的 HOME，支持使用该用户 nvm 下的 Node.js。systemd 不会加载 `.bashrc`，集群认证依赖的环境变量仍需写入 `.env`。
-
-模板的 `ProtectHome=read-only` 允许读取主目录；如果认证插件需要写入主目录中的凭证缓存，需要按插件要求调整 `deploy/kubescope.service` 后重新部署。
-
-部署目录、Node.js 路径和 HOME 使用不含空格或特殊字符的绝对路径。默认目录为 `/opt/kubescope`，脚本也支持其他满足条件的解压目录。
-
-检查本地页面：
-
-```bash
-curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
-```
-
-返回 `200` 表示页面正常；还需在网页中验证集群连接。脚本不主动执行集群查询。
-
-## 8. 通过 SSH 隧道访问
-
-**在自己的电脑上执行**，将用户名和 IP 替换为实际值：
-
-```bash
-ssh -N -L 3000:127.0.0.1:3000 zhiwenxia@服务器IP
-```
-
-保持 SSH 连接，在浏览器打开 `http://127.0.0.1:3000`。
-
-在服务器查看访问令牌：
-
-```bash
-sudo cat /opt/kubescope/.env
-```
-
-将 `K8S_WEB_TOKEN` 的值填入网页的「连接设置」。令牌只保存在页面内存中，刷新页面后需要重新输入。
-
-这种访问方式无需对外开放服务器的 3000 端口，只需要电脑能够通过 SSH 登录服务器。
-
-## 9. 通过域名访问（可选）
-
-多人通过浏览器长期访问时，可配置 Nginx 或其他 HTTPS 反向代理：
-
-1. 将域名解析到服务器，并配置有效 TLS 证书。
-2. 让代理将请求转发到 `http://127.0.0.1:3000`，保留 `Authorization` 请求头。
-3. 按需开放 HTTPS 端口并限制访问来源；后端继续监听本机。
-4. 访问 HTTPS 域名，在页面填入同一个访问令牌。
-
-Nginx 的代理 location 示例（放入已配置 HTTPS 的 server 块内）：
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Authorization $http_authorization;
-    proxy_read_timeout 120s;
-}
-```
-
-该片段不包含证书和完整 server 配置。配置后执行 `sudo nginx -t`，通过后再重新加载 Nginx。
-
-前端静态页面可公开读取，配置令牌后全部 `/api/` 接口要求认证。项目不提供多用户权限管理；有访问权限的用户可以读取授权范围内的 Pod 配置和日志。
-
-## 10. 日常管理与更新
-
-```bash
-# 查看状态
 sudo systemctl status kubescope --no-pager
-
-# 启动 / 停止（先进入应用目录）
-cd /opt/kubescope
-bash start.sh
-bash stop.sh
-
-# 重启并重新应用部署配置
-bash deploy.sh
-
-# 实时日志 / 最近 100 条日志
 sudo journalctl -u kubescope -f
+```
+
+此前已安装独立 kubescope-expansion 服务时，先停止并禁用旧服务，再启用内置扩容，避免多个进程写同一任务文件。删除旧的 K8S_EXPANSION_SOCKET 配置。
+
+## 6. 访问
+
+默认本地监听，可以在个人电脑转发访问：
+
+```bash
+ssh -L 3000:127.0.0.1:3000 user@master
+```
+
+打开 `http://127.0.0.1:3000`，在连接设置输入 Web 令牌。远程网络访问应配置 HTTPS 反向代理；如直接监听网络地址，必须设置 K8S_WEB_TOKEN。POST 扩容请求要求同源 Origin，代理需传递正确 Host，HTTPS 终止代理时设置 K8S_PUBLIC_ORIGIN。
+
+进入“集群资源 → 节点 → 添加节点”，首次通过页面初始化并登记机器，之后只需选择机器并输入登录密码和 sudo 密码。点击开始后自动预检、安装、入群并显示进度。root SSH 不需要 sudo 密码，免密 sudo 可以单独留空 sudo 密码。
+
+## 7. 更新和故障排查
+
+更新前保存 `.env`、kubeconfig、SSH 配置和任务记录，等待扩容任务结束后停止 Web，替换应用代码及依赖，恢复配置后重新运行 `sudo bash deploy.sh`。新的页面配置和任务文件在应用 `var/expansion/` 下，备份/更新时保留该目录；旧版导入配置可能仍引用 `/var/lib/kubescope-expansion`。Web 重启不会自动续跑任务，应核对新节点状态后重试。
+
+常见检查：
+
+```bash
+sudo systemctl cat kubescope
 sudo journalctl -u kubescope -n 100 --no-pager
+sudo /usr/bin/kubeadm version -o json
+sudo /usr/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
 ```
 
-更新时，先在本地重新执行 `bash package.sh`，测试和构建成功后上传新的部署包。服务器只进行解压和切换，不执行 npm 命令。
-
-在服务器执行以下示例，替换实际包名。先解压到临时目录并检查，再停止服务：
-
-```bash
-set -e
-UPDATE_DIR="$(mktemp -d /tmp/kubescope-update.XXXXXX)"
-tar -xzf /tmp/kubescope-1.0.0-20261023T120000Z.tar.gz -C "$UPDATE_DIR"
-test -f "$UPDATE_DIR/kubescope/dist/index.html"
-test -f "$UPDATE_DIR/kubescope/server/index.js"
-sudo chown -R root:root "$UPDATE_DIR/kubescope"
-# 保留服务器当前配置和令牌，避免被新包覆盖
-sudo cp -p /opt/kubescope/.env "$UPDATE_DIR/kubescope/.env"
-BACKUP_DIR="/opt/kubescope-backup-$(date +%Y%m%dT%H%M%S)"
-sudo test ! -e "$BACKUP_DIR"
-sudo systemctl stop kubescope
-sudo mv /opt/kubescope "$BACKUP_DIR"
-sudo mv "$UPDATE_DIR/kubescope" /opt/kubescope
-rmdir "$UPDATE_DIR"
-sudo systemctl start kubescope
-sudo systemctl status kubescope --no-pager
-printf '旧版本备份目录：%s\n' "$BACKUP_DIR"
-curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
-```
-
-页面正常后，还需确认网页能连接集群和读取资源。环境文件位于 `/opt/kubescope/.env`，kubeconfig 继续使用 zhiwenxia 的现有路径，更新步骤会将现有 `.env` 复制到新版本中，保留服务器配置和令牌。
-
-如果切换后启动或验证失败，用实际备份路径回退：
-
-```bash
-sudo systemctl stop kubescope
-sudo mv /opt/kubescope "/opt/kubescope-failed-$(date +%Y%m%dT%H%M%S)"
-sudo mv /opt/kubescope-backup-实际时间 /opt/kubescope
-sudo systemctl start kubescope
-```
-
-如果新版本调整了服务模板或 Node.js 路径，在新应用目录执行 `bash deploy.sh`，即可重新安装配置并重启。`start.sh` 仅负责启动；已经运行的服务需要重启才能加载配置修改。
-
-## 11. 常见问题
-
-| 现象 | 排查方式 |
-| --- | --- |
-| 服务无法启动 | 查看 journalctl；确认 Node.js 路径、版本、项目权限、环境文件和端口占用 |
-| 页面 404 或找不到前端 | 确认上传的是 package.sh 生成的部署包，且 `/opt/kubescope/dist/index.html` 存在；缺失时在本地重新打包 |
-| API 返回 401 | 在页面输入 `/opt/kubescope/.env` 中的访问令牌；刷新页面后重新输入 |
-| 集群连接超时 | 检查 kubeconfig 中的 API 地址、DNS、路由、防火墙及 API Server 状态 |
-| Kubernetes 返回 Unauthorized | 检查 kubeconfig 的认证信息、凭证有效期和认证插件 |
-| Kubernetes 返回 Forbidden | 检查服务与终端是否使用相同 kubeconfig 和 context，以及现有身份的资源或日志权限 |
-| 终端集群访问正常，但服务连接失败 | 检查服务的 HOME、KUBECONFIG、PATH 和云认证变量；systemd 不加载 shell 配置 |
-| SSH 隧道无法建立 | 检查 SSH 登录和本地 3000 端口占用；必要时改用 `-L 3001:127.0.0.1:3000` 并访问本地 3001 |
-| 服务器启动正常，但电脑无法直连 IP:3000 | 默认监听 `0.0.0.0`，检查服务器防火墙、安全组和 `HOST` 配置 |
-
-systemd 已负责进程托管，不需要再用 PM2 启动同一个应用。
-
-旧配置中的 `KUBECTL_PATH` 已停用，可删除。修改 kubeconfig 或当前 context 后需重启服务。
+Web 页面显示经过脱敏的远程 stdout/stderr、错误摘要和失败诊断，并在 master 的任务文件内保存最近 400 行 / 64 KiB；支持下载日志。目标节点也可查看 apt 日志以及 `journalctl -u kubelet -u containerd`。共享 Web 令牌的用户具备相同操作权限，暂无多用户角色管理。

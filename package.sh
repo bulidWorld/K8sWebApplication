@@ -35,23 +35,24 @@ if [[ ! "$VERSION" =~ ^[0-9A-Za-z._+-]+$ ]]; then
   echo "Invalid package version" >&2
   exit 1
 fi
-PACKAGE_NAME="kubescope-${VERSION}-$(date -u +%Y%m%dT%H%M%SZ)"
+PACKAGE_DIR="kubescope-${VERSION}"
+PACKAGE_NAME="${PACKAGE_DIR}-$(date -u +%Y%m%dT%H%M%SZ)"
 STAGING_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$STAGING_DIR"' EXIT
-mkdir -p "$STAGING_DIR/kubescope/server"
+mkdir -p "$STAGING_DIR/$PACKAGE_DIR/server"
 
-cp -R dist deploy "$STAGING_DIR/kubescope/"
-cp server/index.js server/kubernetes.js "$STAGING_DIR/kubescope/server/"
-cp package.json package-lock.json DEPLOYE.md deploy.sh start.sh stop.sh "$STAGING_DIR/kubescope/"
+cp -R dist deploy "$STAGING_DIR/$PACKAGE_DIR/"
+cp -R server/. "$STAGING_DIR/$PACKAGE_DIR/server/"
+cp package.json package-lock.json DEPLOYE.md deploy.sh start.sh stop.sh "$STAGING_DIR/$PACKAGE_DIR/"
 # Bundle production dependencies so the server needs no npm install.
-(cd "$STAGING_DIR/kubescope" && npm ci --omit=dev --ignore-scripts)
-chmod -R u=rwX,go=rX "$STAGING_DIR/kubescope"
-cp .env "$STAGING_DIR/kubescope/.env"
-chmod 600 "$STAGING_DIR/kubescope/.env"
+(cd "$STAGING_DIR/$PACKAGE_DIR" && npm ci --omit=dev --ignore-scripts)
+chmod -R u=rwX,go=rX "$STAGING_DIR/$PACKAGE_DIR"
+cp .env "$STAGING_DIR/$PACKAGE_DIR/.env"
+chmod 600 "$STAGING_DIR/$PACKAGE_DIR/.env"
 ARCHIVE="$OUTPUT_DIR/$PACKAGE_NAME.tar.gz"
 if [[ -e "$ARCHIVE" ]]; then
   echo "Archive already exists: $ARCHIVE" >&2
   exit 1
 fi
-tar -czf "$ARCHIVE" -C "$STAGING_DIR" kubescope
+tar -czf "$ARCHIVE" -C "$STAGING_DIR" "$PACKAGE_DIR"
 echo "Package created: $ARCHIVE"

@@ -5,9 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Run with the existing cluster access of this OS user.
-User=zhiwenxia
-Environment=HOME=/home/zhiwenxia
+# The web process runs node expansion directly on the master.
+User=root
+Group=root
+Environment=HOME=/root
 WorkingDirectory=/opt/kubescope
 EnvironmentFile=/opt/kubescope/.env
 ExecStart=/usr/bin/node /opt/kubescope/server/index.js
@@ -15,6 +16,10 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
+UMask=0077
+StateDirectory=kubescope
+StateDirectory=kubescope-expansion
+ReadWritePaths=/opt/kubescope/var
 ProtectSystem=strict
 ProtectHome=read-only
 

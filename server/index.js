@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { timingSafeEqual } from "node:crypto";
 import { createKubernetes, resourcePath, logsPath } from "./kubernetes.js";
 import { buildModulePatch } from "./deployment-config.js";
+import { expansionClient } from "./expansion.js";
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -32,6 +33,7 @@ export function createApp({
   staticDirectory = root,
   auditFile = process.env.K8S_AUDIT_FILE || fileURLToPath(new URL('../var/deployment-audit.jsonl', import.meta.url)),
   publicOrigin = process.env.K8S_PUBLIC_ORIGIN,
+  expansion = expansionClient(),
 } = {}) {
   const staticRoot = path.resolve(staticDirectory);
   return http.createServer(async (req, res) => {
@@ -45,11 +47,24 @@ export function createApp({
     try {
       const url = new URL(req.url, "http://localhost");
       const update = url.pathname.match(/^\/api\/deployments\/([^/]+)\/([^/]+)\/modules\/(image|environment|resources|probes)$/);
-      if (req.method !== "GET" && !(req.method === "PATCH" && update))
+      const expansionRoute = url.pathname.match(/^\/api\/expansion\/(settings|discover|probe|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/);
+      if (req.method !== "GET" && !(req.method === "POST" && expansionRoute) && !(req.method === "PATCH" && update))
         return json(res, 405, { error: "仅支持 GET 和 Deployment 模块 PATCH 请求" });
       if (url.pathname.startsWith("/api/")) {
         if (!authorized(req, token))
           return json(res, 401, { error: "请输入有效的访问令牌" });
+        if (expansionRoute) {
+          if (!token) return json(res, 403, { error: '扩容功能要求配置访问令牌' });
+          if (req.method === 'POST') {
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
+              return json(res, 403, { error: '扩容请求必须来自当前页面' });
+            if ((req.headers['content-type'] || '').split(';')[0] !== 'application/json') return json(res, 415, { error: '请使用 application/json' });
+            let data = ''; for await (const chunk of req) { data += chunk; if (Buffer.byteLength(data) > 4096) return json(res, 413, { error: '请求过大' }); }
+            let body; try { body = JSON.parse(data); } catch { return json(res, 400, { error: '无效 JSON' }); }
+            return json(res, 200, await expansion('POST', `/${expansionRoute[1]}`, { ...body, source: req.socket.remoteAddress }));
+          }
+          return json(res, 200, await expansion('GET', `/${expansionRoute[1]}`));
+        }
         if (req.method === 'PATCH' && update) {
           if (!(req.headers['content-type'] || '').toLowerCase().split(';')[0].trim().match(/^application\/json$/))
             return json(res, 415, { error: '请使用 application/json' });
@@ -142,6 +157,10 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
+  if (process.getuid?.() !== 0) {
+    console.error("Web 应用需要以 root 用户启动，请使用 sudo bash deploy.sh 部署。");
+    process.exit(1);
+  }
   const host = process.env.HOST || "0.0.0.0";
   const port = Number(process.env.PORT || 3000);
   if (

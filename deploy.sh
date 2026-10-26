@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run as zhiwenxia from the extracted deployment package.
+# Run as root from the extracted deployment package.
 set -euo pipefail
 
 APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$APP_DIR"
-if [[ "$(id -un)" != zhiwenxia ]]; then
-  echo "请以 zhiwenxia 用户运行 bash deploy.sh（不要 sudo 整个脚本）。" >&2
+if [[ "$(id -u)" != 0 ]]; then
+  echo "请使用 sudo bash deploy.sh，以 root 用户部署 Web 应用。" >&2
   exit 1
 fi
 NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
@@ -14,22 +14,21 @@ if [[ ! -x "$NODE_BIN" ]]; then
   exit 1
 fi
 # Keep generated systemd paths literal and unambiguous.
-for value in "$APP_DIR" "$NODE_BIN" "$HOME"; do
+for value in "$APP_DIR" "$NODE_BIN"; do
   if [[ ! "$value" =~ ^/[a-zA-Z0-9_./+-]+$ ]]; then
     echo "部署目录、Node.js 和 HOME 需要使用不含空格或特殊字符的绝对路径。" >&2
     exit 1
   fi
 done
-for file in server/index.js server/kubernetes.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
+for file in server/index.js server/expansion.js server/expansion-executor.js server/kubernetes.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
   if [[ ! -r "$file" ]]; then
     echo "缺少或无法读取 $file，请使用完整部署包。" >&2
     exit 1
   fi
 done
-sudo -v
-sudo test -f "$APP_DIR/.env"
-sudo chown zhiwenxia "$APP_DIR/.env"
-sudo chmod 600 "$APP_DIR/.env"
+test -f "$APP_DIR/.env"
+chown root:root "$APP_DIR/.env"
+chmod 600 "$APP_DIR/.env"
 
 # Parse .env with Node.js, never execute it as shell code.
 "$NODE_BIN" --env-file=.env --input-type=module -e '
@@ -47,18 +46,20 @@ for (const file of process.env.KUBECONFIG.split(path.delimiter)) {
 }
 '
 
+install -d -m 700 "$APP_DIR/var" /var/lib/kubescope-expansion
 UNIT_FILE="$(mktemp)"
 trap 'rm -f -- "$UNIT_FILE"' EXIT
 sed \
   -e "s|^WorkingDirectory=.*|WorkingDirectory=$APP_DIR|" \
   -e "s|^EnvironmentFile=.*|EnvironmentFile=$APP_DIR/.env|" \
-  -e "s|^Environment=HOME=.*|Environment=HOME=$HOME|" \
+  -e "s|^Environment=HOME=.*|Environment=HOME=/root|" \
+  -e "s|^ReadWritePaths=.*|ReadWritePaths=$APP_DIR/var|" \
   -e "s|^ExecStart=.*|ExecStart=$NODE_BIN $APP_DIR/server/index.js|" \
   deploy/kubescope.service > "$UNIT_FILE"
-sudo install -o root -g root -m 644 "$UNIT_FILE" /etc/systemd/system/kubescope.service
-sudo systemctl daemon-reload
-sudo systemctl enable kubescope
+install -o root -g root -m 644 "$UNIT_FILE" /etc/systemd/system/kubescope.service
+systemctl daemon-reload
+systemctl enable kubescope
 # Restart also applies updated configuration on repeated deployment.
-sudo systemctl restart kubescope
-sudo systemctl status kubescope --no-pager
-echo "部署完成。查看日志：sudo journalctl -u kubescope -f"
+systemctl restart kubescope
+systemctl status kubescope --no-pager
+echo "部署完成。查看日志：journalctl -u kubescope -f"
