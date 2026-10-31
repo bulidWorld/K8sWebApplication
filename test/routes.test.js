@@ -34,6 +34,7 @@ test('empty and invalid routes fall back to valid pages', () => {
 test('resource dialogs retain page, namespace and tab in shareable URLs', () => {
   for (const modal of [
     { dialog: 'resource', kind: 'nodes', name: 'worker-1', tab: 'labels' },
+    { dialog: 'resource', kind: 'customresourcedefinitions', name: 'clusters.postgresql.cnpg.io', tab: 'detail' },
     { dialog: 'resource', kind: 'pods', name: 'web-1', namespace: 'apps', tab: 'logs' },
     { dialog: 'resource', kind: 'deployments', name: 'web', namespace: 'apps', tab: 'config:environment' },
     { dialog: 'resource', kind: 'services', name: 'web', namespace: 'apps', tab: 'detail' },

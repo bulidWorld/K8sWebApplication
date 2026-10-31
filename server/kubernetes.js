@@ -12,6 +12,7 @@ const groups = {
   services: "/api/v1", events: "/api/v1",
   persistentvolumeclaims: "/api/v1", persistentvolumes: "/api/v1",
   deployments: "/apis/apps/v1", storageclasses: "/apis/storage.k8s.io/v1",
+  customresourcedefinitions: "/apis/apiextensions.k8s.io/v1",
 };
 export const namespaced = new Set(["pods", "services", "events", "persistentvolumeclaims", "deployments"]);
 export function validateName(value, label = "资源名称") {

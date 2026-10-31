@@ -112,7 +112,9 @@ export default function App() {
   const selectedResourceMatches = selection?.kind === resourceKind && selection.item.metadata.name === resourceName && (selection.item.metadata.namespace || '') === resourceNamespace;
   const pods = data.pods || [];
   const statuses =
-    section === "nodes"
+    section === "customresourcedefinitions"
+      ? ["Established", "NotEstablished", "NameConflict", "Terminating", "Unknown"]
+      : section === "nodes"
       ? ["Ready", "NotReady"]
       : section === "pods"
         ? [...new Set(pods.map(podStatus))].sort()

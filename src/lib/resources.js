@@ -2,6 +2,7 @@ export const sections = [
   ["overview", "◫", "集群概览"],
   ["nodes", "⬡", "节点"],
   ["namespaces", "▦", "命名空间"],
+  ["customresourcedefinitions", "▤", "自定义资源定义 CRD"],
   ["pods", "◈", "Pods"],
   ["deployments", "▤", "Deployments"],
   ["services", "⇄", "Services"],
@@ -20,6 +21,7 @@ export const kinds = [
   "persistentvolumeclaims",
   "persistentvolumes",
   "storageclasses",
+  "customresourcedefinitions",
 ];
 export const scoped = new Set(["pods", "deployments", "services", "events", "persistentvolumeclaims"]);
 export const labels = Object.fromEntries(

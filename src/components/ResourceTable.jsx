@@ -1,6 +1,6 @@
 import React from "react";
 import Badge from "./Badge.jsx";
-import { nodeReady, podStatus, containers, age } from "../lib/formatters.js";
+import { nodeReady, podStatus, crdStatus, containers, age } from "../lib/formatters.js";
 
 const eventTimestamp = (item) =>
   item.series?.lastObservedTime ||
@@ -10,7 +10,7 @@ const eventTimestamp = (item) =>
 
 export default function ResourceTable({ kind, items, search, statusFilter, open }) {
   const status = (item) =>
-    kind === "nodes"
+    kind === "customresourcedefinitions" ? crdStatus(item) : kind === "nodes"
       ? nodeReady(item)
         ? "Ready"
         : "NotReady"
@@ -38,6 +38,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
         item.spec?.volumeName,
         item.spec?.claimRef,
         item.provisioner,
+        ...(kind === "customresourcedefinitions" ? [item.spec?.group, item.spec?.names, item.spec?.scope, item.spec?.versions?.map(v => v.name)] : []),
       ])
         .toLowerCase()
         .includes(search.toLowerCase()) &&
@@ -51,6 +52,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
     );
   }
   const storageHeaders = {
+    customresourcedefinitions: ["名称", "状态", "API 组", "Kind", "作用域", "提供的版本", "存储版本", "存续时间"],
     persistentvolumeclaims: ["名称 / 命名空间", "状态", "申请 / 分配容量", "访问模式", "存储类", "绑定卷", "存续时间"],
     persistentvolumes: ["名称", "状态", "容量", "访问模式", "回收策略", "存储类", "绑定声明", "存续时间"],
     storageclasses: ["名称", "默认", "供应器", "回收策略", "绑定模式", "允许扩容", "存续时间"],
@@ -213,6 +215,17 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
                       <td>{item.reclaimPolicy || "Delete"}</td>
                       <td>{item.volumeBindingMode || "Immediate"}</td>
                       <td>{item.allowVolumeExpansion ? "是" : "否"}</td>
+                      <td>{age(meta.creationTimestamp)}</td>
+                    </>
+                  )}
+                  {kind === "customresourcedefinitions" && (
+                    <>
+                      <td><Badge status={status(item)} /></td>
+                      <td className="mono">{item.spec?.group || "—"}</td>
+                      <td className="mono">{item.spec?.names?.kind || "—"}</td>
+                      <td>{item.spec?.scope === "Namespaced" ? "命名空间" : item.spec?.scope === "Cluster" ? "集群" : "—"}</td>
+                      <td>{item.spec?.versions?.filter(v => v.served).map(v => v.name).join(", ") || "—"}</td>
+                      <td>{item.spec?.versions?.filter(v => v.storage).map(v => v.name).join(", ") || "—"}</td>
                       <td>{age(meta.creationTimestamp)}</td>
                     </>
                   )}

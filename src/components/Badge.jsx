@@ -9,9 +9,10 @@ export default function Badge({ status }) {
     "Normal",
     "Available",
     "Bound",
+    "Established",
   ].includes(status);
   const bad =
-    /error|fail|crash|backoff|notready|unavailable|warning|evicted|lost/i.test(
+    /error|fail|crash|backoff|notready|unavailable|warning|evicted|lost|notestablished|nameconflict/i.test(
       status,
     );
   return (

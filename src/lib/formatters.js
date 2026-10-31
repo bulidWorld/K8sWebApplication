@@ -1,5 +1,12 @@
 export const nodeReady = (n) =>
   n.status?.conditions?.find((c) => c.type === "Ready")?.status === "True";
+export const crdStatus = (item) => {
+  const conditions = item.status?.conditions || [];
+  if (item.metadata?.deletionTimestamp || conditions.some(c => c.type === "Terminating" && c.status === "True")) return "Terminating";
+  if (conditions.some(c => c.type === "NamesAccepted" && c.status === "False")) return "NameConflict";
+  const established = conditions.find(c => c.type === "Established");
+  return established?.status === "True" ? "Established" : established?.status === "False" ? "NotEstablished" : "Unknown";
+};
 export const containers = (p) => [
   ...(p.status?.initContainerStatuses || []),
   ...(p.status?.containerStatuses || []),

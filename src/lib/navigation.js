@@ -11,6 +11,7 @@ export const navigation = [
   { id: 'cluster', label: '集群资源', icon: '⎈', children: [
     { id: 'nodes', label: '节点', section: 'nodes' },
     { id: 'namespaces', label: '命名空间', section: 'namespaces' },
+    { id: 'customresourcedefinitions', label: '自定义资源定义 CRD', section: 'customresourcedefinitions' },
   ] },
   { id: 'applications', label: '应用管理', icon: '▦', children: [
     { id: 'deployment-group', label: 'Deployments', children: [

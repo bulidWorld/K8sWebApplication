@@ -17,7 +17,7 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
                     <span>⌕</span>
                     <input
                       aria-label="搜索资源"
-                      placeholder="搜索名称、标签、节点…"
+                      placeholder={section === 'customresourcedefinitions' ? '搜索名称、API 组、Kind、版本…' : '搜索名称、标签、节点…'}
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />

@@ -6,6 +6,7 @@
 
 - 集群概览：节点就绪率、可分配 CPU/内存、Pod 运行情况、异常 Pod 列表。
 - 查看节点、命名空间、Pods、Deployments、Services、事件及资源 JSON 详情。
+- 在“集群资源 → 自定义资源定义 CRD”查看 CustomResourceDefinition 的 API 组、Kind、作用域、提供的版本、存储版本、状态和 JSON 详情，支持搜索、状态筛选及 JSON 下载。CRD 属于集群级资源，不受命名空间筛选影响；专用只读身份需要 `deploy/rbac.yaml` 中的 CRD get/list 权限。
 - 查看存储声明（PVC）、持久卷（PV）和存储类（StorageClass）：容量、状态、访问模式、绑定关系及 JSON 详情；PVC 支持命名空间筛选。
 - 命名空间筛选，按名称、命名空间、标签和节点搜索，按状态筛选。
 - Pod 日志：切换普通/初始化/临时容器、最近 100–5000 行、上次实例、每 5 秒刷新、下载；每次日志请求最大 1 MiB。
@@ -86,7 +87,7 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 | 路径                                                                        | 说明                                                                                               |
 | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `/api/health`                                                               | 当前 context 与 API server 连通性检查                                                              |
-| `/api/resources/:kind?namespace=default`                                    | kind 为 nodes/namespaces/pods/deployments/services/events/persistentvolumeclaims/persistentvolumes/storageclasses；省略 namespace 时工作负载跨命名空间查询 |
+| `/api/resources/:kind?namespace=default`                                    | kind 为 nodes/namespaces/pods/deployments/services/events/persistentvolumeclaims/persistentvolumes/storageclasses/customresourcedefinitions；省略 namespace 时工作负载跨命名空间查询 |
 | `/api/resources/:kind/:name?namespace=default`                              | 单资源 JSON；命名空间资源应指定 namespace                                                          |
 | `/api/logs?namespace=default&pod=web&container=app&tail=200&previous=false` | 带时间戳的日志快照                                                                                 |
 
