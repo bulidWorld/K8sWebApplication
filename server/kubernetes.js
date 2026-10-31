@@ -77,7 +77,11 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
           if (!["https:", "http:"].includes(target.protocol)) throw new Error("不支持的 API server 协议");
           // Log bodies are text, but API errors are serialized Kubernetes Status objects.
           const options = { headers: { Accept: json ? "application/json" : "text/plain, application/json" } };
-          if (mutation) options.headers['Content-Type'] = settings.contentType || 'application/json-patch+json';
+          const payload = mutation ? JSON.stringify(mutation) : undefined;
+          if (payload !== undefined) {
+            options.headers['Content-Type'] = settings.contentType || 'application/json-patch+json';
+            options.headers['Content-Length'] = Buffer.byteLength(payload);
+          }
           await config.applyToHTTPSOptions(options);
           if (controller.signal.aborted) throw new Error("访问 Kubernetes 超时，请检查集群连接。");
           return new Promise((resolve, reject) => {
@@ -105,7 +109,7 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
               });
             });
             req.on("error", reject);
-            req.end(mutation ? JSON.stringify(mutation) : undefined);
+            req.end(payload);
           });
         };
         const aborted = new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("访问 Kubernetes 超时，请检查集群连接。")), { once: true }));

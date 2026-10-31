@@ -342,7 +342,7 @@ export default function App() {
           {section === "overview" ? (
             <OverviewPage data={data} errors={errors} loading={loading} namespace={namespace} navigate={navigate} open={open} />
           ) : (
-            <ResourcesPage section={section} deploymentModule={deploymentModule} data={data} errors={errors} loading={loading} namespace={namespace} search={search} setSearch={setSearch} statuses={statuses} statusFilter={statusFilter} setStatusFilter={setStatusFilter} setRefresh={setRefresh} open={open} />
+            <ResourcesPage token={token} section={section} deploymentModule={deploymentModule} data={data} errors={errors} loading={loading} namespace={namespace} search={search} setSearch={setSearch} statuses={statuses} statusFilter={statusFilter} setStatusFilter={setStatusFilter} setRefresh={setRefresh} open={open} />
           )}
           <footer className="page-footer">
             <span>

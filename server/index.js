@@ -19,6 +19,7 @@ import {
   managedKubeconfig,
 } from "./kubernetes.js";
 import { buildNodeLabelsPatch } from "./node-labels.js";
+import { deletePod } from './pod-delete.js';
 import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
 import { validateApply, maxManifestBytes } from './apply.js';
@@ -88,6 +89,7 @@ export function createApp({
         const nodeLabels = url.pathname.match(
           /^\/api\/nodes\/([^/]+)\/labels$/,
         );
+        const podDelete = url.pathname.match(/^\/api\/pods\/([^/]+)\/([^/]+)$/);
         const expansionRoute = url.pathname.match(
           /^\/api\/expansion\/(settings|discover|probe|registry\/prepare|hosts\/(?:compare|apply)|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/,
         );
@@ -95,6 +97,7 @@ export function createApp({
         const applyRoute = url.pathname === "/api/manifests/apply";
         if (
           req.method !== "GET" &&
+          !(req.method === "DELETE" && podDelete) &&
           !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute)) &&
           !(req.method === "PATCH" && (update || nodeLabels))
         )
@@ -102,6 +105,14 @@ export function createApp({
         if (url.pathname.startsWith("/api/")) {
           if (!authorized(req, token))
             return json(res, 401, { error: "请输入有效的访问令牌" });
+          if (podDelete) {
+            if (req.method !== 'DELETE') return json(res, 405, { error: '请使用 DELETE' });
+            if (!token) return json(res, 403, { error: '删除 Pod 要求配置访问令牌' });
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
+              return json(res, 403, { error: '删除 Pod 请求必须来自当前页面' });
+            const resource = await deletePod(req, kubernetes, podDelete[1], podDelete[2]);
+            return json(res, 200, { resource });
+          }
           if (applyRoute) {
             if (req.method !== 'POST') return json(res, 405, { error: '请使用 POST' });
             if (!token) return json(res, 403, { error: '应用 YAML 要求配置访问令牌' });

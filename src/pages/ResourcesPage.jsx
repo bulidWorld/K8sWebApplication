@@ -1,12 +1,35 @@
-import React from "react";
+import React, { useRef, useState } from "react";
+import api from '../lib/api.js';
 import { labels, scoped } from "../lib/resources.js";
 import ResourceTable from "../components/ResourceTable.jsx";
 import { deploymentModuleTitles } from '../lib/navigation.js';
 
-export default function ResourcesPage({ section, deploymentModule, data, errors, loading, namespace, search, setSearch, statuses, statusFilter, setStatusFilter, setRefresh, open }) {
+export default function ResourcesPage({ section, deploymentModule, data, errors, loading, namespace, search, setSearch, statuses, statusFilter, setStatusFilter, setRefresh, open, token }) {
+  const deleting = useRef(false);
+  const [deletingUid, setDeletingUid] = useState('');
+  const [deleteResult, setDeleteResult] = useState(null);
+  async function removePod(item) {
+    if (deleting.current || !item.metadata.uid || item.metadata.deletionTimestamp) return;
+    const { namespace, name, uid } = item.metadata;
+    if (!window.confirm(`确定删除 Pod「${namespace}/${name}」吗？\n\n删除会终止该 Pod 中的容器。由 Deployment、StatefulSet 等控制器管理的 Pod 可能会自动重建。`)) return;
+    deleting.current = true;
+    setDeletingUid(uid);
+    setDeleteResult(null);
+    try {
+      await api(`/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, token, undefined, { method: 'DELETE', body: JSON.stringify({ uid }) });
+      setDeleteResult({ message: `已提交删除 ${namespace}/${name}，等待 Pod 终止。` });
+      setRefresh(n => n + 1);
+    } catch (error) {
+      setDeleteResult({ error: true, message: `删除 ${namespace}/${name} 失败：${error.message}` });
+    } finally {
+      deleting.current = false;
+      setDeletingUid('');
+    }
+  }
   const count = (kind) => data[kind] ? data[kind].length : "—";
   return (
             <section className="panel resource-panel">
+              {section === 'pods' && deleteResult && <div className={deleteResult.error ? 'error' : 'panel-note'} role={deleteResult.error ? 'alert' : 'status'}>{deleteResult.message}</div>}
               <div className="resource-toolbar">
                 <div className="resource-title">
                   <h2>{labels[section]}</h2>
@@ -68,6 +91,8 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
               ) : (
                 <ResourceTable
                   kind={section}
+                  removePod={removePod}
+                  deletingUid={deletingUid}
                   items={data[section] || []}
                   search={search}
                   statusFilter={statusFilter}

@@ -8,7 +8,7 @@ const eventTimestamp = (item) =>
   item.eventTime ||
   item.metadata?.creationTimestamp;
 
-export default function ResourceTable({ kind, items, search, statusFilter, open }) {
+export default function ResourceTable({ kind, items, search, statusFilter, open, removePod, deletingUid }) {
   const status = (item) =>
     kind === "customresourcedefinitions" ? crdStatus(item) : kind === "nodes"
       ? nodeReady(item)
@@ -255,6 +255,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
                   )}
                   <td className="align-right">
                     <div className="row-actions">
+                      {kind === 'pods' && removePod && <button className="text-button delete-button" disabled={!!deletingUid || !!meta.deletionTimestamp || !meta.uid} onClick={() => removePod(item)}>{deletingUid === meta.uid ? '正在删除…' : meta.deletionTimestamp ? '终止中' : '删除'}</button>}
                       {kind === 'nodes' && <button className="text-button" onClick={() => open(kind, item, 'labels')}>标签（{Object.keys(meta.labels || {}).length}）</button>}
                       {kind === 'deployments' && <button className="text-button" onClick={() => open(kind, item, 'config')}>配置</button>}
                       {kind === "pods" && (
@@ -294,7 +295,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
         共 {filtered.length} 项资源
         {filtered.length !== items.length &&
           `，已筛选 / 总计 ${items.length} 项`}
-        <span>{kind === 'deployments' ? '支持模块配置 · Kubernetes API' : '只读访问 · Kubernetes API'}</span>
+        <span>{kind === 'pods' ? '支持删除 · Kubernetes API' : kind === 'deployments' ? '支持模块配置 · Kubernetes API' : '只读访问 · Kubernetes API'}</span>
       </div>
     </>
   );

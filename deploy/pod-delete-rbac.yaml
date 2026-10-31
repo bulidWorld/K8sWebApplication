@@ -1,0 +1,9 @@
+# Bind this optional role to the kubeconfig identity allowed to delete Pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescope-pod-deleter
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]

@@ -1875,3 +1875,6 @@ main.token-entry { margin: 0; width: 100%; min-height: 100dvh; display: grid; pl
 .manifest-apply p { line-height: 1.6; margin: 0; }
 .manifest-apply textarea { width: 100%; box-sizing: border-box; padding: 12px; font-family: monospace; resize: vertical; }
 .manifest-apply pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+
+.text-button.delete-button { color: #f28b82; }
+.text-button.delete-button:disabled { opacity: 0.5; cursor: not-allowed; }

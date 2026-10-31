@@ -9,10 +9,11 @@
 - 在“集群资源 → 自定义资源定义 CRD”查看 CustomResourceDefinition 的 API 组、Kind、作用域、提供的版本、存储版本、状态和 JSON 详情，支持搜索、状态筛选及 JSON 下载。CRD 属于集群级资源，不受命名空间筛选影响；专用只读身份需要 `deploy/rbac.yaml` 中的 CRD get/list 权限。
 - 查看存储声明（PVC）、持久卷（PV）和存储类（StorageClass）：容量、状态、访问模式、绑定关系及 JSON 详情；PVC 支持命名空间筛选。
 - 命名空间筛选，按名称、命名空间、标签和节点搜索，按状态筛选。
+- Pod 删除：列表中点击“删除”后弹框确认，展示命名空间及名称，提交后刷新列表。使用 UID 前置条件防止误删同名重建 Pod，遵循默认终止宽限期；删除权限见 `deploy/pod-delete-rbac.yaml`，需绑定到 kubeconfig 使用的身份。
 - Pod 日志：切换普通/初始化/临时容器、最近 100–5000 行、上次实例、每 5 秒刷新、下载；每次日志请求最大 1 MiB。
 - 手动刷新或每 15 秒刷新资源。明确展示连接、RBAC、超时、空列表等状态。
 - Deployment 第一期配置：镜像与版本、环境变量与 Secret/ConfigMap 引用、CPU/内存与副本数、HTTP/HTTPS 健康检查；模块独立预览和提交，支持多容器选择、并发版本检测、发布状态刷新。
-- 资源白名单、请求超时、可选访问令牌。默认提供 Deployment 四个配置模块写入；页面初始化后可启用内置任务引擎，支持固定流程的 Worker 扩容，没有删除、exec 或任意命令接口。
+- 资源白名单、请求超时、可选访问令牌。默认提供 Deployment 四个配置模块写入；页面初始化后可启用内置任务引擎，支持固定流程的 Worker 扩容，仅支持单个 Pod 删除，没有 exec 或任意命令接口。
 
 CPU/内存展示的是节点 allocatable 容量，不是实时用量，不依赖 metrics-server。
 
@@ -223,6 +224,7 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 弹窗状态保存在地址栏 Hash 的查询参数中，可复制链接；打开、切换资源页签和关闭弹窗都会同步地址栏，并支持浏览器前进/后退。
 
 - 节点标签：`#/nodes?dialog=resource&kind=nodes&name=worker-1&tab=labels`
+- Pod 删除：列表中点击“删除”后弹框确认，展示命名空间及名称，提交后刷新列表。使用 UID 前置条件防止误删同名重建 Pod，遵循默认终止宽限期；删除权限见 `deploy/pod-delete-rbac.yaml`，需绑定到 kubeconfig 使用的身份。
 - Pod 日志：`#/pods?dialog=resource&kind=pods&name=web-1&namespace=apps&tab=logs`
 - Deployment 环境变量：`#/deployments/environment?dialog=resource&kind=deployments&name=web&namespace=apps&tab=config%3Aenvironment`
 - 添加节点：`#/nodes?dialog=add-node`
@@ -241,3 +243,5 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 - 未勾选：GET 当前资源，不存在时 POST 创建；存在时根据 `kubectl.kubernetes.io/last-applied-configuration` 计算 JSON Merge Patch，记录新配置，并用 resourceVersion 防止并发覆盖。保留未管理的对象字段，删除上次声明但此次移除的字段。**列表整体替换，不等同于 kubectl 对内置资源的 Strategic Merge Patch 列表合并**；需要字段归属及 schema 驱动的列表合并时使用服务端模式。
 
 运行身份需要 discovery 读取权限及目标资源的相应 get/create/patch 权限。多个资源逐个提交，不具备事务回滚；响应 `success` 表示全部是否成功，`output` 和 `diagnostics` 展示成功和失败结果。新建 CRD 后立即提交实例可能因 API 尚未就绪失败，需要待 CRD 就绪后重试。请求日志不会记录 YAML 或 API 错误详情，以避免泄露 Secret 内容。
+
+Pod 删除接口：`DELETE /api/pods/:namespace/:name`，JSON 请求体为 `{"uid":"Pod UID"}`，要求访问令牌和同源 Origin。保留 Kubernetes 403/404/409 等错误，禁止批量删除和强制删除参数。删除行为参见 [Kubernetes Pod API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/)。
