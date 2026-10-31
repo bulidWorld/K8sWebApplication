@@ -202,3 +202,17 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 8. 验证集群：检查 API Server、节点、系统 Pod 和 Flannel 就绪，加载集群连接。
 
 每次点击只执行选中步骤，前置步骤成功后才可继续。已完成步骤也可点击“重新检查并执行”；失败或服务重启中断后可重试。版本在首次执行工具安装时锁定，IP 在首次执行初始化时锁定，刷新页面会恢复配置、进度及各步日志。旧部署记录中已锁定的配置继续沿用。初始化失败时不会自动 reset；若留下不完整配置，需要人工检查处理后再重试。
+
+## 节点标签管理
+
+进入「节点」，点击行内「标签（数量）」或详情中的「标签」页签，查看完整标签键和值。修改值或点击「删除」后，点击「保存标签」统一提交；删除可撤销，空字符串是有效标签值。重新加载可读取最新节点数据，存在未保存修改时会提示确认。
+
+接口：`PATCH /api/nodes/{name}/labels`，请求示例：
+
+```json
+{"uid":"节点 UID","resourceVersion":"节点版本","changes":{"example.com/zone":"zone-a","obsolete-label":null}}
+```
+
+仅修改 `changes` 中的标签，`null` 表示删除。后端校验标签格式，并通过 JSON Patch 原子检查 UID 与 resourceVersion；并发变化返回 409，需重新加载后编辑。请求与结果写入现有 `K8S_AUDIT_FILE` 审计文件。保存时的连接失败可能发生在 API Server 已接受请求之后，应重新加载核实结果。
+
+运行身份需要集群级 Nodes 的 `get`、`list`、`patch` 权限。`deploy/node-labels-rbac.yaml` 提供可选 ClusterRole，需绑定至实际 kubeconfig 身份；应用不会自动授予权限。Kubernetes RBAC 的 `patch` 权限针对整个 Node，网页接口将变更限定为标签。

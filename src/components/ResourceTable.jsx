@@ -242,6 +242,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
                   )}
                   <td className="align-right">
                     <div className="row-actions">
+                      {kind === 'nodes' && <button className="text-button" onClick={() => open(kind, item, 'labels')}>标签（{Object.keys(meta.labels || {}).length}）</button>}
                       {kind === 'deployments' && <button className="text-button" onClick={() => open(kind, item, 'config')}>配置</button>}
                       {kind === "pods" && (
                         <button

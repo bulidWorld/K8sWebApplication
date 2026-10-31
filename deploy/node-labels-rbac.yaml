@@ -1,0 +1,10 @@
+# Optional: bind this role to the kubeconfig identity that edits node labels.
+# Kubernetes RBAC grants PATCH on Nodes; the web API limits edits to labels.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescope-node-label-editor
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch"]

@@ -1860,3 +1860,14 @@ main.token-entry { margin: 0; width: 100%; min-height: 100dvh; display: grid; pl
   .expansion-dialog .cluster-wizard-footer .expansion-help { flex-basis: 100%; order: 1; }
   .expansion-dialog .expansion-section { padding: 14px; }
 }
+
+.node-labels { padding: 20px 24px; }
+.node-labels > p { line-height: 1.6; }
+.node-labels fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.node-labels legend { font-weight: 600; padding: 12px 0; }
+.node-label-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #344256; }
+.node-label-row .config-field { flex: 1; min-width: 0; }
+.node-label-row .config-field span { overflow-wrap: anywhere; }
+.node-label-row.pending-delete .config-field { opacity: .55; }
+.node-label-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+@media (max-width: 600px) { .node-labels { padding: 16px; } .node-label-row { flex-wrap: wrap; } .node-label-row .config-field { flex-basis: 100%; } }

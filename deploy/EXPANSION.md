@@ -95,3 +95,13 @@ Web 服务自身日志在 master 的 `journalctl -u kubescope`。新节点的服
 证书包由工作节点通过 `curl -kfsS` 携带 Bearer Token 请求 `<协议>://<仓库IP>:<证书接口端口>/api/tls/bundle` 获取，仓库必须从工作节点可达。校验证书有效期、域名及密钥匹配后配置 containerd 的 hosts.toml 和证书信任，并重启 containerd。hosts 和 containerd 主配置会在目标节点备份；证书与私钥保存于目标节点 `/etc/kubescope/registry/`，私钥权限 0600。拉取镜像时启用 TLS 验证。仓库配置失败会停止入群，并按现有流程保留失败阶段、采集诊断日志。
 
 Token 仅随本次扩容请求通过 SSH 输入传递，不写入扩容配置、任务记录或命令参数；表单提交后清空。关闭或切换扩容面板也会清空 Token。未勾选时沿用原扩容流程。已经入群的节点不会因本次操作被修改。
+
+## 使用 XML 导入节点
+
+进入“节点扩容 → 添加节点 → 目标机器”，在“从 XML 导入”中选择文件。一次导入一个节点，文件最大 64 KiB；导入校验成功后填充向导，继续核对 SSH 指纹、登录授权、hosts 映射和镜像仓库，最后点击“开始扩容”。导入失败时保留原有配置。集群配置仍沿用当前集群的设置。
+
+页面提供示例与 XSD 下载，源码分别位于 `public/templates/node-expansion.example.xml` 和 `public/templates/node-expansion.xsd`。XSD 包含各元素、字段、默认值、凭据用法及 hosts 合并行为的中文说明。文件以 `nodeExpansion` 为根元素，`version="1"`，按顺序包含 `target`、可选的 `credentials`、`hosts`、`registry`。不支持 DTD 或自定义实体。
+
+`hosts` 只填写要新增的映射，例如 `<mapping ip="192.168.1.30" names="registry.internal registry"/>`，无需提供完整 `/etc/hosts` 或 master 内容。导入模式不会选择 master 的其他映射；确认写入时替换同名非回环映射，保留其余条目，并备份原文件。省略 `hosts` 或使用 `<hosts/>` 表示保持原配置。读取配置后仍需确认写入，回环主机名冲突及同名多 IP 会被拒绝。
+
+密码和仓库 Token 可省略，在页面补填。省略 `sudoPassword` 时默认复用 SSH 密码，显式空元素 `<sudoPassword/>` 表示不复用（例如免密 sudo）。凭据使用元素文本，支持 CDATA，保留首尾空格，不允许换行；包含凭据的源文件应妥善保管。导入的凭据仅用于当前向导，不保存到目标配置或日志。
