@@ -6,6 +6,7 @@ export default function useClusterData({ namespace, token, auto }) {
   const [data, setData] = useState({});
   const [errors, setErrors] = useState({});
   const [health, setHealth] = useState(null);
+  const [checkedToken, setCheckedToken] = useState("");
   const [loading, setLoading] = useState(true);
   const [updated, setUpdated] = useState(null);
   const [refresh, setRefresh] = useState(0);
@@ -14,48 +15,48 @@ export default function useClusterData({ namespace, token, auto }) {
     setLoading(true);
     setErrors({});
     setData({});
-    setHealth(null);
     setUpdated(null);
-    const fetchAll = async () => {
-      const outcomes = await Promise.allSettled([
-        api("/api/health", token, controller.signal),
-        ...kinds.map((kind) =>
-          api(
-            `/api/resources/${kind}${scoped.has(kind) && namespace ? `?namespace=${encodeURIComponent(namespace)}` : ""}`,
-            token,
-            controller.signal,
-          ),
-        ),
-      ]);
-      if (controller.signal.aborted) return;
-      const next = {};
-      const failures = {};
-      outcomes.forEach((result, index) => {
-        if (index === 0) {
-          setHealth(
-            result.status === "fulfilled"
-              ? result.value
-              : { connected: false, error: result.reason.message },
-          );
-          return;
-        }
-        const kind = kinds[index - 1];
-        if (result.status === "fulfilled")
-          next[kind] = result.value.items || [];
-        else failures[kind] = result.reason.message;
-      });
-      setData(next);
-      setErrors(failures);
+    if (!token) {
+      setHealth(null);
       setLoading(false);
-      setUpdated(new Date());
+      return () => controller.abort();
+    }
+    const fetchAll = async () => {
+      try {
+        const result = await api("/api/health", token, controller.signal);
+        if (controller.signal.aborted) return;
+        setHealth(result);
+        setCheckedToken(token);
+        if (!result.connected) return;
+        const outcomes = await Promise.allSettled(kinds.map(kind =>
+          api(`/api/resources/${kind}${scoped.has(kind) && namespace ? `?namespace=${encodeURIComponent(namespace)}` : ""}`, token, controller.signal),
+        ));
+        if (controller.signal.aborted) return;
+        const next = {};
+        const failures = {};
+        outcomes.forEach((result, index) => {
+          if (result.status === "fulfilled") next[kinds[index]] = result.value.items || [];
+          else failures[kinds[index]] = result.reason.message;
+        });
+        setData(next);
+        setErrors(failures);
+        setUpdated(new Date());
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setHealth({ connected: false, error: error.message, status: error.status });
+          setCheckedToken(token);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     };
     fetchAll();
     return () => controller.abort();
   }, [namespace, refresh, token]);
   useEffect(() => {
-    if (!auto || loading) return;
+    if (!token || !auto || loading) return;
     const id = setInterval(() => setRefresh((n) => n + 1), 15000);
     return () => clearInterval(id);
-  }, [auto, loading]);
-  return { data, errors, health, loading, updated, setRefresh };
+  }, [token, auto, loading]);
+  return { data, errors, health, loading, updated, setRefresh, checking: !!token && (checkedToken !== token || !health) };
 }

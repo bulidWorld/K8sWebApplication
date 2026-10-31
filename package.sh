@@ -43,7 +43,7 @@ mkdir -p "$STAGING_DIR/$PACKAGE_DIR/server"
 
 cp -R dist deploy "$STAGING_DIR/$PACKAGE_DIR/"
 cp -R server/. "$STAGING_DIR/$PACKAGE_DIR/server/"
-cp package.json package-lock.json DEPLOYE.md deploy.sh start.sh stop.sh "$STAGING_DIR/$PACKAGE_DIR/"
+cp package.json package-lock.json DEPLOYE.md deploy.sh install_node.sh start.sh stop.sh "$STAGING_DIR/$PACKAGE_DIR/"
 # Bundle production dependencies so the server needs no npm install.
 (cd "$STAGING_DIR/$PACKAGE_DIR" && npm ci --omit=dev --ignore-scripts)
 chmod -R u=rwX,go=rX "$STAGING_DIR/$PACKAGE_DIR"

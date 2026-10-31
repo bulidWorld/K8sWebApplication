@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -93,6 +93,16 @@ test('扩容接口强制令牌、同源、请求限制并代理固定路由', as
     assert.equal(ok.status, 200); assert.equal(calls.length, 1); assert.equal(calls[0][1], '/tasks');
     const edit = await fetch(`${base}/api/expansion/targets/worker-02`, { method: 'POST', headers, body: '{}' });
     assert.equal(edit.status, 200); assert.equal(calls.at(-1)[1], '/targets/worker-02');
+    assert.equal((await fetch(`${base}/api/expansion/registry/prepare`, { method: 'POST', headers, body: '{}' })).status, 200);
+    assert.equal(calls.at(-1)[1], '/registry/prepare');
+    for (const route of ['compare', 'apply']) {
+      const url = `${base}/api/expansion/hosts/${route}`;
+      assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, Authorization: '' }, body: '{}' })).status, 401);
+      assert.equal((await fetch(url, { method: 'POST', headers: { ...headers, Origin: 'https://evil.example' }, body: '{}' })).status, 403);
+      const response = await fetch(url, { method: 'POST', headers, body: '{"targetId":"worker-02"}' });
+      assert.equal(response.status, 200);
+      assert.equal(calls.at(-1)[1], `/hosts/${route}`);
+    }
   } finally { await new Promise(resolve => app.close(resolve)); }
 });
 test('重启中断旧预检并保留历史；已注册机器禁止再次初始化', async () => {
@@ -168,4 +178,112 @@ test('内置扩容引擎要求 root，只初始化一次，不需要独立服务
   const replies = await Promise.all([client('GET', '/targets'), client('GET', '/tasks/id')]);
   assert.equal(created, 1); assert.equal(replies[0].route, '/targets');
   assert.equal((await expansionClient('')('GET', '/targets')).enabled, false);
+});
+
+test('历史任务返回全部记录且不携带日志，重启后仍可查看详情', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'expansion-history-'));
+  try {
+    const tasks = Array.from({ length: 55 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      targetId: 'worker-02', target: { nodeName: 'worker-02', host: '192.168.1.12' },
+      status: 'failed', stage: '安装组件', error: '安装失败',
+      createdAt: new Date(1700000000000 + i * 1000).toISOString(), logs: [`任务日志 ${i}`],
+    }));
+    await writeFile(path.join(dir, 'tasks.json'), JSON.stringify(tasks));
+    const handle = await createExecutor(config(dir));
+    const result = await handle('GET', '/tasks');
+    assert.equal(result.tasks.length, 55);
+    assert.equal(result.tasks[0].id, tasks[54].id);
+    assert.equal(result.tasks[54].id, tasks[0].id);
+    assert(result.tasks.every(t => !('logs' in t)));
+    const detail = await handle('GET', `/tasks/${tasks[0].id}`);
+    assert.deepEqual(detail.logs, ['任务日志 0']);
+    assert.equal(detail.error, '安装失败');
+    await assert.rejects(handle('GET', '/tasks/ffffffff-ffff-4fff-8fff-ffffffffffff'), { status: 404 });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+for (const [registryFails, reuse] of [[false, false], [true, false], [false, true]]) test(`工作节点仓库配置${reuse ? '复用已拉取证书' : ''}在安装后入群前执行，${registryFails ? '失败阻止入群' : '成功后继续入群'}且 Token 不落盘`, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'worker-registry-'));
+  const scripts = [];
+  let joined = false;
+  const secret = 'worker-registry-secret';
+  const mock = async (file, args, input, timeout, options) => {
+    if (file.endsWith('ssh')) {
+      scripts.push(input);
+      if (input.includes('/api/tls/bundle') && !input.includes('REGISTRY_MODE=apply')) {
+        options.onOutput('stderr', Buffer.from('worker-registry-'));
+        options.onOutput('stderr', Buffer.from('secret\n'));
+        if (registryFails) throw new Error(`仓库连接失败 ${secret}`);
+      }
+      if (input.includes('kubeadm join --config')) joined = true;
+      return '';
+    }
+    if (args.includes('version')) return JSON.stringify(file.endsWith('kubectl') ? { serverVersion: { gitVersion: 'v1.34.1' } } : { clientVersion: { gitVersion: 'v1.34.1' } });
+    if (args.includes('create')) return `kubeadm join 192.168.1.10:6443 --token abcdef.0123456789abcdef --discovery-token-ca-cert-hash sha256:${'a'.repeat(64)}`;
+    if (args.includes('nodes')) return JSON.stringify({ items: joined ? [{ metadata: { name: 'worker-02' }, status: { conditions: [{ type: 'Ready', status: 'True' }], addresses: [{ type: 'InternalIP', address: '192.168.1.12' }], allocatable: { cpu: '4' } } }] : [] });
+    if (args.includes('pods')) return JSON.stringify({ items: [{ status: { conditions: [{ type: 'Ready', status: 'True' }] } }] });
+    return '';
+  };
+  try {
+    const handle = await createExecutor(config(dir), mock);
+    await assert.rejects(handle('POST', '/tasks', { targetId: 'worker-02', start: true, registry: { ip: '10.0.0.5;id', token: secret } }), /IPv4/);
+    await assert.rejects(handle('POST', '/tasks', { targetId: 'worker-02', registry: { ip: '10.0.0.5', token: secret } }), /开始扩容/);
+    let registryTaskId;
+    if (reuse) {
+      const preparation = await handle('POST', '/registry/prepare', { targetId: 'worker-02', registry: { ip: '10.0.0.5', token: secret } });
+      await waitFor(handle, preparation.id, 'succeeded');
+      while ((await handle('GET', '/targets')).busy) await new Promise(resolve => setTimeout(resolve, 5));
+      registryTaskId = preparation.id;
+      scripts.length = 0;
+    }
+    const task = await handle('POST', '/tasks', { targetId: 'worker-02', start: true, ...(reuse ? { registryTaskId } : { registry: { ip: '10.0.0.5', token: secret } }) });
+    const done = await waitFor(handle, task.id, registryFails ? 'failed' : 'succeeded');
+    while ((await handle('GET', '/targets')).busy) await new Promise(resolve => setTimeout(resolve, 5));
+    const installIndex = scripts.findIndex(script => script.includes('apt-get install'));
+    const registryIndex = scripts.findIndex(script => script.includes('/api/tls/bundle'));
+    assert.ok(installIndex >= 0 && registryIndex > installIndex);
+    assert.match(scripts[registryIndex], /REGISTRY_IP='10.0.0.5'/);
+    if (reuse) { assert.match(scripts[registryIndex], /REGISTRY_MODE=apply/); assert.ok(!scripts[registryIndex].includes(secret)); }
+    assert.equal(joined, !registryFails);
+    if (!registryFails) assert.ok(scripts.findIndex(script => script.includes('kubeadm join --config')) > registryIndex);
+    else assert.match(done.failedStage, /镜像仓库/);
+    assert.ok(!JSON.stringify(await handle('GET', '/targets')).includes(secret));
+    assert.ok(!(await readFile(path.join(dir, 'tasks.json'), 'utf8')).includes(secret));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('第4步独立拉取证书，记录进度且不安装或入群，拒绝失败证书任务', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'expansion-registry-'));
+  const calls = [];
+  let failPull = false;
+  const run = async (file, args, input, timeout, { onOutput } = {}) => {
+    calls.push({ file, input });
+    assert.equal(file, '/usr/bin/ssh');
+    onOutput?.('stdout', '[registry-progress:20] 正在请求证书接口\n');
+    if (failPull) throw new Error('request failed secret-export');
+    onOutput?.('stdout', '[registry-progress:100] 证书拉取和校验完成\n');
+    return '';
+  };
+  try {
+    const handle = await createExecutor(config(dir), run);
+    const body = () => ({ targetId: 'worker-02', registry: { ip: '10.0.0.20', token: 'secret-export' } });
+    const task = await handle('POST', '/registry/prepare', body());
+    const done = await waitFor(handle, task.id, 'succeeded');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(done.kind, 'registry');
+    assert.equal(done.progress, 100);
+    assert.match(calls[0].input, /REGISTRY_MODE=prepare/);
+    assert.ok(!calls[0].input.includes('kubeadm join'));
+    assert.ok(!JSON.stringify(done).includes('secret-export'));
+    assert.ok(!(await readFile(path.join(dir, 'tasks.json'), 'utf8')).includes('secret-export'));
+    await assert.rejects(handle('POST', '/tasks', { targetId: 'worker-02', start: true, registryTaskId: 'missing' }), { status: 409 });
+    failPull = true;
+    const failed = await handle('POST', '/registry/prepare', body());
+    const result = await waitFor(handle, failed.id, 'failed');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(result.progress, 20);
+    assert.ok(!JSON.stringify(result).includes('secret-export'));
+    await assert.rejects(handle('POST', '/tasks', { targetId: 'worker-02', start: true, registryTaskId: failed.id }), { status: 409 });
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

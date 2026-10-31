@@ -1,4 +1,5 @@
 set -Eeuo pipefail
+if [[ ${KUBESCOPE_INSTALL_PHASE:-all} != packages ]]; then
 STEP='准备初始化'
 trap 'code=$?; printf "安装失败：%s（行 %s，退出码 %s）\n" "$STEP" "$LINENO" "$code" >&2' ERR
 export DEBIAN_FRONTEND=noninteractive
@@ -37,7 +38,7 @@ CONTAINERD_VERSION=$(kubescope_containerd_package_version "$CONTAINERD_VERSION" 
 printf '[安装] containerd 软件包版本：%s\n' "$CONTAINERD_VERSION"
 STEP='安装 containerd 和基础依赖'
 printf '[安装] %s\n' "$STEP"
-apt-get install -y ca-certificates curl gpg "containerd=$CONTAINERD_VERSION"
+apt-get install -y ca-certificates curl gpg python3 openssl "containerd=$CONTAINERD_VERSION"
 STEP='配置和启动 containerd'
 printf '[安装] %s\n' "$STEP"
 CONTAINERD_INFO=$(containerd --version)
@@ -52,6 +53,8 @@ grep -Eq 'SystemdCgroup[[:space:]]*=[[:space:]]*true' /etc/containerd/config.tom
 containerd --config /etc/containerd/config.toml config dump >/dev/null
 systemctl enable containerd
 systemctl restart containerd
+fi
+if [[ ${KUBESCOPE_INSTALL_PHASE:-all} != runtime ]]; then
 STEP='配置 Kubernetes 软件源'
 printf '[安装] %s\n' "$STEP"
 install -d -m 0755 /etc/apt/keyrings /etc/apt/sources.list.d
@@ -75,3 +78,5 @@ printf '[安装] %s\n' "$STEP"
 apt-get install -y "kubeadm=$PACKAGE_VERSION" "kubelet=$PACKAGE_VERSION"
 apt-mark hold kubelet kubeadm containerd
 systemctl enable kubelet
+
+fi

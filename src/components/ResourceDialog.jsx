@@ -46,7 +46,11 @@ export default function ResourceDialog({ selection, close, token, onUpdated }) {
     api(`/api/logs?${query}`, token, controller.signal)
       .then((body) => setLogs(body.logs))
       .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message);
+        if (e.name !== "AbortError") setError(
+          /waiting to start.*ContainerCreating/i.test(e.message)
+            ? `容器正在创建，尚未产生运行日志。请在 Pod 事件中检查镜像拉取、存储挂载和网络初始化情况。\n${e.message}`
+            : e.message,
+        );
       })
       .finally(() => {
         if (!controller.signal.aborted) setBusy(false);

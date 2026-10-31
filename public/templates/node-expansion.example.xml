@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 一个文件定义一个节点；请修改地址、账号和节点名。密码可在页面输入。 -->
+<nodeExpansion version="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:noNamespaceSchemaLocation="node-expansion.xsd">
+  <target host="192.168.1.21" port="22" user="ubuntu" nodeName="worker-02"/>
+  <!-- 可选：省略 sudoPassword 默认复用 SSH 密码；空元素表示免密 sudo。
+  <credentials>
+    <sshPassword><![CDATA[替换为实际 SSH 密码]]></sshPassword>
+    <sudoPassword/>
+  </credentials>
+  -->
+  <!-- 仅填写新增映射；已有同名非回环映射会替换，其他映射保留。 -->
+  <hosts>
+    <mapping ip="192.168.1.30" names="registry.internal registry"/>
+    <mapping ip="192.168.1.31" names="service.internal"/>
+  </hosts>
+  <!-- 可选：不使用自建仓库时省略整个 registry 元素。
+  <registry ip="192.168.1.30" protocol="https" port="443">
+    <token><![CDATA[替换为证书导出 Token]]></token>
+  </registry>
+  -->
+</nodeExpansion>

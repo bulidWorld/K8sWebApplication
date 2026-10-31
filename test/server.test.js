@@ -71,7 +71,20 @@ test("真实 HTTP 传输使用 kubeconfig 认证，保留原始 JSON、日志，
     if (req.url === "/denied") { res.writeHead(403); return res.end(JSON.stringify({ message: "pods is forbidden" })); }
     if (req.url === "/invalid") return res.end("bad json");
     if (req.url === "/large") return res.end("x".repeat(4096));
-    if (req.url.includes("/log")) return res.end("2026 service started\n");
+    if (req.url === "/creating/log") {
+      if (!req.headers.accept.includes("application/json")) {
+        res.writeHead(406);
+        return res.end(JSON.stringify({ message: "only the following media types are accepted: application/json, application/yaml, application/vnd.kubernetes.protobuf" }));
+      }
+      res.writeHead(400, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ kind: "Status", message: 'container "app" in pod "web" is waiting to start: ContainerCreating' }));
+    }
+    if (req.url.includes("/log")) {
+      assert(req.headers.accept.includes("text/plain"));
+      assert(req.headers.accept.includes("application/json"));
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      return res.end("2026 service started\n");
+    }
     res.end(JSON.stringify({ items: [{ metadata: { name: "web" }, arbitrary: { preserved: true } }] }));
   });
   await new Promise(resolve => upstream.listen(0, "127.0.0.1", resolve));
@@ -84,6 +97,7 @@ test("真实 HTTP 传输使用 kubeconfig 认证，保留原始 JSON、日志，
     assert.equal(result.items[0].arbitrary.preserved, true);
     assert.deepEqual(requests[0], { path: "/api/v1/namespaces/apps/pods", method: "GET", auth: "Bearer kube-token" });
     assert.match(await client.request("/log", false), /service started/);
+    await assert.rejects(client.request("/creating/log", false), { status: 502, message: /waiting to start: ContainerCreating/ });
     await assert.rejects(client.request("/denied"), { status: 502, message: /forbidden/ });
     await assert.rejects(client.request("/invalid"), { status: 502, message: /JSON/ });
     await assert.rejects(client.request("/large"), { status: 502, message: /大小/ });

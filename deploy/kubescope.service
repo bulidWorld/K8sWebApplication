@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# The web process runs node expansion directly on the master.
+# The web process provisions the local host as well as remote nodes.
 User=root
 Group=root
 Environment=HOME=/root
@@ -20,7 +20,10 @@ UMask=0077
 StateDirectory=kubescope
 StateDirectory=kubescope-expansion
 ReadWritePaths=/opt/kubescope/var
-ProtectSystem=strict
+# Local registry configuration writes /run and /etc; cluster installation
+# also installs packages into /usr and updates /var. A read-only system
+# namespace prevents these explicitly supported host operations.
+ProtectSystem=false
 ProtectHome=read-only
 
 [Install]

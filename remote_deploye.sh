@@ -3,13 +3,14 @@
 set -euo pipefail
 set +x # Never trace credential assignments, even if invoked with bash -x.
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_HOST="${DEPLOY_HOST:-192.168.100.132}"
+DEPLOY_HOST="${DEPLOY_HOST:-192.168.100.143}"
 DEPLOY_USER="${DEPLOY_USER:-zhiwenxia}"
 DEPLOY_PORT="${DEPLOY_PORT:-22}"
 RELEASES_DIR="${RELEASES_DIR:-$PROJECT_DIR/releases}"
 REMOTE_ROOT="${REMOTE_ROOT:-/opt/kubescope-releases}"
 REMOTE_NODE_BIN="${REMOTE_NODE_BIN:-}"
 SSH_IDENTITY="${SSH_IDENTITY:-}"
+SSH_HOST_KEY_POLICY="${SSH_HOST_KEY_POLICY:-accept-new}"
 # Default password requested for this deployment host; empty overrides restore prompts.
 DEPLOY_PASSWORD="${DEPLOY_PASSWORD-123456}"
 SUDO_PASSWORD="${SUDO_PASSWORD-$DEPLOY_PASSWORD}"
@@ -18,9 +19,10 @@ usage() {
   cat <<'HELP'
 Usage: bash remote_deploye.sh [options]
   --user USER          SSH user (default: zhiwenxia)
-  --host HOST          Server (default: 192.168.100.132)
+  --host HOST          Server (default: 192.168.100.143)
   --port PORT          SSH port (default: 22)
   --identity FILE      Optional SSH private key
+  --host-key-policy P  accept-new (default) or strict; changed keys always fail
   --releases-dir DIR   Package directory (default: ./releases beside this script)
   --remote-dir DIR     Remote release root (default: /opt/kubescope-releases)
   --node-bin FILE      Remote Node.js path; otherwise reuse the old service executable
@@ -34,11 +36,11 @@ while (( $# )); do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     -h|--help) usage; exit 0 ;;
-    --user|--host|--port|--identity|--releases-dir|--remote-dir|--node-bin)
+    --user|--host|--port|--identity|--releases-dir|--remote-dir|--node-bin|--host-key-policy)
       (( $# >= 2 )) || { echo "Missing value for $1" >&2; exit 1; }
       case "$1" in
         --user) DEPLOY_USER=$2 ;; --host) DEPLOY_HOST=$2 ;; --port) DEPLOY_PORT=$2 ;;
-        --identity) SSH_IDENTITY=$2 ;; --releases-dir) RELEASES_DIR=$2 ;;
+        --identity) SSH_IDENTITY=$2 ;; --host-key-policy) SSH_HOST_KEY_POLICY=$2 ;; --releases-dir) RELEASES_DIR=$2 ;;
         --remote-dir) REMOTE_ROOT=$2 ;; --node-bin) REMOTE_NODE_BIN=$2 ;;
       esac
       shift 2 ;;
@@ -52,6 +54,11 @@ for value in "$REMOTE_ROOT" "${REMOTE_NODE_BIN:-/auto}"; do
 done
 [[ -z "$SSH_IDENTITY" || -r "$SSH_IDENTITY" ]] || { echo 'SSH key is not readable' >&2; exit 1; }
 for tool in tar sha256sum timeout; do command -v "$tool" >/dev/null || { echo "Missing command: $tool" >&2; exit 1; }; done
+case "$SSH_HOST_KEY_POLICY" in
+  accept-new) HOST_KEY_CHECKING=accept-new ;;
+  strict) HOST_KEY_CHECKING=yes ;;
+  *) echo 'Host key policy must be accept-new or strict' >&2; exit 1 ;;
+esac
 ARCHIVE=''
 shopt -s nullglob
 for candidate in "$RELEASES_DIR"/kubescope-*.tar.gz; do
@@ -64,7 +71,7 @@ ARCHIVE="$(cd -- "$(dirname -- "$ARCHIVE")" && pwd)/${ARCHIVE##*/}"
 LOCAL_TMP="$(mktemp -d /tmp/kubescope-deploy.XXXXXXXXXXXX)"
 REMOTE_UPLOAD=''
 REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
-COMMON=(-o ControlMaster=no -o ControlPath=none -o ControlPersist=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+COMMON=(-o "StrictHostKeyChecking=$HOST_KEY_CHECKING" -o ControlMaster=no -o ControlPath=none -o ControlPersist=no -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 [[ -z "$SSH_IDENTITY" ]] || COMMON+=(-i "$SSH_IDENTITY")
 SSH=(ssh -p "$DEPLOY_PORT" -o BatchMode=no "${COMMON[@]}")
 SCP=(scp -P "$DEPLOY_PORT" -o BatchMode=no "${COMMON[@]}")
@@ -92,7 +99,7 @@ ASKPASS
   export KUBESCOPE_DEPLOY_PASSWORD_FILE="$LOCAL_TMP/password"
   export SSH_ASKPASS="$LOCAL_TMP/askpass" SSH_ASKPASS_REQUIRE=force
   export DISPLAY="${DISPLAY:-kubescope-deploy}"
-  COMMON+=(-o StrictHostKeyChecking=yes -o NumberOfPasswordPrompts=1)
+  COMMON+=(-o NumberOfPasswordPrompts=1)
   SSH=(ssh -p "$DEPLOY_PORT" -o BatchMode=no "${COMMON[@]}")
   SCP=(scp -P "$DEPLOY_PORT" -o BatchMode=no "${COMMON[@]}")
 fi
@@ -128,7 +135,6 @@ OLD_EXEC=$(systemctl show kubescope --property=ExecStart --value 2>/dev/null || 
 NODE_BIN=$NODE_OVERRIDE
 if [[ -z "$NODE_BIN" ]]; then NODE_BIN=$(printf '%s\n' "$OLD_EXEC" | sed -n 's/.*path=\([^ ;]*\).*/\1/p'); fi
 [[ -n "$NODE_BIN" ]] || NODE_BIN=$(command -v node || true)
-[[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./+-]+$ && -x "$NODE_BIN" ]] || { echo '找不到远端 Node.js，请通过 --node-bin 指定。' >&2; exit 1; }
 WAS_ACTIVE=false
 if systemctl is-active --quiet kubescope; then WAS_ACTIVE=true; fi
 install -d -m 755 "$ROOT"
@@ -137,13 +143,18 @@ printf '[远端] 解压至：%s\n' "$RELEASE"
 tar -xzf "$ARCHIVE" -C "$RELEASE" --no-same-owner --no-same-permissions
 APP="$RELEASE/$TOP"
 [[ -f "$APP/deploy.sh" ]] || { echo '解压后缺少 deploy.sh' >&2; exit 1; }
+if [[ -z "$NODE_BIN" ]]; then
+  echo '[远端] 未检测到 Node.js，调用 install_node.sh 安装…' >&2
+  NODE_BIN=$(bash "$APP/install_node.sh")
+fi
+[[ "$NODE_BIN" =~ ^/[a-zA-Z0-9_./+-]+$ && -x "$NODE_BIN" ]] || { echo '远端 Node.js 路径无效，请检查 --node-bin 配置。' >&2; exit 1; }
 HAD_UNIT=false
 if [[ -f /etc/systemd/system/kubescope.service ]]; then cp -p /etc/systemd/system/kubescope.service "$RELEASE/previous.service"; HAD_UNIT=true; fi
 rollback() {
   local code=$?
   trap - EXIT
   echo "部署失败，保留新目录供排查：$RELEASE" >&2
-  systemctl stop kubescope || true
+  if systemctl cat kubescope >/dev/null 2>&1; then systemctl stop kubescope || true; fi
   if "$HAD_UNIT"; then
     cp -p "$RELEASE/previous.service" /etc/systemd/system/kubescope.service
     systemctl daemon-reload
@@ -225,6 +236,11 @@ REMOTE_SCRIPT
 # Use ordinary independent SSH sessions. Some hosts refuse additional multiplexed
 # sessions; do not fall back to BatchMode or start a persistent background master.
 printf '[2/6] 使用独立 SSH 连接，不启用连接复用。\n'
+if [[ $SSH_HOST_KEY_POLICY == accept-new ]]; then
+  echo '主机校验：首次连接自动记录公钥；已记录主机的公钥变化时拒绝连接。'
+else
+  echo '主机校验：严格模式，目标公钥必须已在 known_hosts 中。'
+fi
 printf '[3/6] 准备上传文件…\n'
 mkdir -m 700 "$LOCAL_TMP/upload"
 ln -- "$ARCHIVE" "$LOCAL_TMP/upload/package.tar.gz" 2>/dev/null || cp -- "$ARCHIVE" "$LOCAL_TMP/upload/package.tar.gz"

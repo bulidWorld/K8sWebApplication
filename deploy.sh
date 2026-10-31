@@ -10,8 +10,12 @@ if [[ "$(id -u)" != 0 ]]; then
 fi
 NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 if [[ ! -x "$NODE_BIN" ]]; then
-  echo "找不到 Node.js，请安装或通过 NODE_BIN 指定绝对路径。" >&2
-  exit 1
+  if [[ -n "$NODE_BIN" ]]; then
+    echo "NODE_BIN 指向的文件不可执行，请检查指定路径。" >&2
+    exit 1
+  fi
+  echo "未检测到 Node.js，开始自动安装…" >&2
+  NODE_BIN="$(bash "$APP_DIR/install_node.sh")"
 fi
 # Keep generated systemd paths literal and unambiguous.
 for value in "$APP_DIR" "$NODE_BIN"; do
@@ -20,7 +24,7 @@ for value in "$APP_DIR" "$NODE_BIN"; do
     exit 1
   fi
 done
-for file in server/index.js server/expansion.js server/expansion-executor.js server/kubernetes.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
+for file in server/index.js server/expansion.js server/expansion-executor.js server/kubernetes.js server/deployment-env.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
   if [[ ! -r "$file" ]]; then
     echo "缺少或无法读取 $file，请使用完整部署包。" >&2
     exit 1
@@ -32,21 +36,14 @@ chmod 600 "$APP_DIR/.env"
 
 # Parse .env with Node.js, never execute it as shell code.
 "$NODE_BIN" --env-file=.env --input-type=module -e '
-import fs from "node:fs";
-import path from "node:path";
+import { validateDeploymentEnvironment } from "./server/deployment-env.js";
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw Error("需要 Node.js >= 22.12");
-for (const key of ["PORT", "KUBECONFIG", "K8S_WEB_TOKEN"]) {
-  if (!process.env[key]) throw Error(`.env 缺少 ${key}`);
-}
-if (!Number.isInteger(Number(process.env.PORT)) || Number(process.env.PORT) < 1 || Number(process.env.PORT) > 65535) throw Error("PORT 必须为 1–65535");
-for (const file of process.env.KUBECONFIG.split(path.delimiter)) {
-  if (!path.isAbsolute(file)) throw Error("KUBECONFIG 必须使用绝对路径");
-  fs.accessSync(file, fs.constants.R_OK);
-}
+const { missing } = validateDeploymentEnvironment();
+if (missing.length) console.warn(`KUBECONFIG 尚不存在：${missing.join(", ")}；继续部署 Web，请在页面连接或分步安装 K8s 集群。`);
 '
 
-install -d -m 700 "$APP_DIR/var" /var/lib/kubescope-expansion
+install -d -m 700 "$APP_DIR/var" /var/lib/kubescope-expansion /var/service/kubescope/log
 UNIT_FILE="$(mktemp)"
 trap 'rm -f -- "$UNIT_FILE"' EXIT
 sed \

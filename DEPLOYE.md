@@ -5,7 +5,7 @@ KubeScope 由 React 前端和 Node.js 后端组成，生产共用一个端口。
 ## 1. 环境
 
 - 本地构建机器：Node.js >=22.12、npm、Bash、tar。
-- master：Node.js >=22.12，可读的 kubeconfig。
+- 已有集群：准备可读的 kubeconfig；新节点可先部署 Web，再通过页面分步安装集群。未安装 Node.js 时，部署脚本自动安装 Node.js 24 LTS。
 - 启用扩容时，master 还需 `/usr/bin/ssh`、`/usr/bin/kubeadm`、`/usr/bin/kubectl`，目标版本与 kubeadm 集群匹配。
 - 新节点需要 Ubuntu、SSH、可用网络，Kubernetes 组件由扩容流程安装。
 
@@ -30,9 +30,9 @@ bash remote_deploye.sh --dry-run
 bash remote_deploye.sh
 ```
 
-默认选择脚本旁 `releases/` 中最后修改的 `kubescope-版本-构建时间.tar.gz`，上传到 `zhiwenxia@192.168.100.132:22`。先校验包结构和 SHA256，上传到远端私有临时目录，随后在终端通过 sudo 执行远端安装流程和解压后的 deploy.sh。按当前部署要求，脚本内预设了该主机的默认认证密码，自动完成 SSH 和 sudo 认证；可通过 DEPLOY_PASSWORD/SUDO_PASSWORD 覆盖。SSH 密码通过本地 0600 临时文件交给 ASKPASS，退出清理；sudo 密码仅经 SSH 标准输入传递，不进入命令参数或远端文件。脚本明确禁用 ControlMaster、ControlPersist 和 ControlPath 连接复用，避免远端拒绝复用会话。通过一次独立 SCP 连接上传整个私有目录，再通过一次独立 SSH 连接执行 sudo 部署，默认自动认证，无需输入密码；将 DEPLOY_PASSWORD 和 SUDO_PASSWORD 都设为空时恢复交互提示。每一步都有进度输出；连接超时 15 秒，建立连接后每 15 秒探测存活，连续 3 次无响应则断开。远端临时文件在部署连接退出时清理。脚本不会自动构建，也不会自动接受未知 SSH 主机密钥。
+默认选择脚本旁 `releases/` 中最后修改的 `kubescope-版本-构建时间.tar.gz`，上传到 `zhiwenxia@192.168.100.132:22`。先校验包结构和 SHA256，上传到远端私有临时目录，随后在终端通过 sudo 执行远端安装流程和解压后的 deploy.sh。按当前部署要求，脚本内预设了该主机的默认认证密码，自动完成 SSH 和 sudo 认证；可通过 DEPLOY_PASSWORD/SUDO_PASSWORD 覆盖。SSH 密码通过本地 0600 临时文件交给 ASKPASS，退出清理；sudo 密码仅经 SSH 标准输入传递，不进入命令参数或远端文件。脚本明确禁用 ControlMaster、ControlPersist 和 ControlPath 连接复用，避免远端拒绝复用会话。通过一次独立 SCP 连接上传整个私有目录，再通过一次独立 SSH 连接执行 sudo 部署，默认自动认证，无需输入密码；将 DEPLOY_PASSWORD 和 SUDO_PASSWORD 都设为空时恢复交互提示。每一步都有进度输出；连接超时 15 秒，建立连接后每 15 秒探测存活，连续 3 次无响应则断开。远端临时文件在部署连接退出时清理。脚本不会自动构建。默认使用 `StrictHostKeyChecking=accept-new`，首次连接自动将主机公钥写入 known_hosts，已记录主机的公钥发生变化时仍拒绝连接；如需仅信任预先登记的公钥，使用 `--host-key-policy strict` 或设置 `SSH_HOST_KEY_POLICY=strict`。
 
-每次部署解压到 `/opt/kubescope-releases/构建包名.随机后缀/kubescope-版本/`，保留旧版本。脚本从旧 kubescope.service 获取运行目录和 Node 路径；没有旧服务时使用 root PATH 中的 Node。自定义示例：
+每次部署解压到 `/opt/kubescope-releases/构建包名.随机后缀/kubescope-版本/`，保留旧版本。脚本从旧 kubescope.service 获取运行目录和 Node 路径；没有旧服务时使用 root PATH 中的 Node；未找到时调用部署包中的 install_node.sh 自动安装。自定义示例：
 
 ```bash
 bash remote_deploye.sh --user youruser --identity ~/.ssh/id_ed25519
@@ -68,7 +68,7 @@ K8S_WEB_TOKEN=替换为强随机令牌
 # K8S_PUBLIC_ORIGIN=https://kubescope.example.com
 ```
 
-原有 kubeconfig 也可使用绝对路径继续配置，无需放到 root HOME 中；确认 root 可读取其中引用的证书和认证程序。Kubernetes 身份和权限由该 kubeconfig 决定。
+已有集群的 kubeconfig 应使用实际存在的绝对路径，无需放到 root HOME 中；确认 root 可读取其中引用的证书和认证程序。Kubernetes 身份和权限由该 kubeconfig 决定。新节点允许不设置 KUBECONFIG，或暂时指向尚不存在的文件；Web 会正常启动并提示连接或分步安装集群。安装完成后使用应用 var/cluster/kubeconfig，不需要手动创建 ~/.kube/config。已有文件不可读、配置格式错误及引用的证书缺失仍需排查。
 
 首次扩容在页面点击“自动识别当前集群 → 保存并继续”，然后填写新机器参数、核对 SSH 指纹、输入登录密码和 sudo 密码，点击“添加并开始扩容”。目录和配置文件由后台自动创建，不需要 K8S_EXPANSION_CONFIG 或手动配置 SSH 密钥。详见 [页面扩容说明](deploy/EXPANSION.md)。
 
@@ -79,13 +79,15 @@ cd /opt/kubescope-1.0.0
 sudo bash deploy.sh
 ```
 
-若 sudo PATH 中没有 Node：
+部署时未检测到 Node.js，会自动调用同目录的 `install_node.sh`。该脚本从 nodejs.org 下载 Node.js 24 LTS 官方 Linux 安装包并验证 SHA256，支持 x86_64 / aarch64，安装至 `/usr/local/lib/nodejs/`，通过 `/usr/local/bin/node` 启动。需要访问官方站点；缺少下载或解压工具时，会通过 apt-get 安装依赖。已有 Node.js 不会被自动升级或覆盖，部署仍要求版本 >=22.12。也可单独执行 `sudo bash install_node.sh`。
+
+若要使用已安装但不在 sudo PATH 中的 Node：
 
 ```bash
 sudo env NODE_BIN=/实际路径/node bash deploy.sh
 ```
 
-脚本自动使用其所在目录作为运行目录，校验配置和 Node 版本，创建可写日志目录，安装 `kubescope.service`，以 root 身份启动，并设置开机自启。模板启用 ProtectSystem=strict，保留应用 var 目录和 `/var/lib/kubescope-expansion` 等状态目录可写。自定义审计或任务路径时，同步调整服务 ReadWritePaths。
+脚本自动使用其所在目录作为运行目录，校验配置和 Node 版本，创建可写日志目录，安装 `kubescope.service`，以 root 身份启动，并设置开机自启。模板设置 `ProtectSystem=false`：Web 后端以 root 执行本机仓库配置和集群安装，需要写入 `/run`、`/etc`、`/usr` 和 `/var`；仍保留 `NoNewPrivileges`、`PrivateTmp` 和 `ProtectHome=read-only`。升级时需重新运行 `sudo bash deploy.sh`，使新的服务模板生效。若旧服务配置了 `ProtectSystem=strict`，仓库配置会在创建 `/run/kubescope-cluster.lock` 时提示只读文件系统。
 
 ```bash
 sudo systemctl status kubescope --no-pager
@@ -120,3 +122,13 @@ sudo /usr/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
 ```
 
 Web 页面显示经过脱敏的远程 stdout/stderr、错误摘要和失败诊断，并在 master 的任务文件内保存最近 400 行 / 64 KiB；支持下载日志。目标节点也可查看 apt 日志以及 `journalctl -u kubelet -u containerd`。共享 Web 令牌的用户具备相同操作权限，暂无多用户角色管理。
+
+请求与故障日志默认保存到 `/var/service/kubescope/log/YYYY-MM-DD.jsonl`，可通过 `.env` 中的 `K8S_LOG_DIR` 指定其他绝对路径。部署脚本创建默认目录；目录权限为 0700，新日志文件权限为 0600。每个 HTTP 请求记录开始和结束事件、请求编号、方法、路径、来源地址、状态码、耗时与断连情况；响应头 `X-Request-Id` 可用于关联排查。失败请求记录异常堆栈，集群后台任务失败也记录堆栈及已脱敏的任务输出。日志不记录请求头、请求体、响应体或 URL 查询参数，避免泄露访问令牌和配置内容。按日期分文件，历史日志由运维按保留策略清理。
+
+查看当天日志：
+
+```bash
+sudo tail -f /var/service/kubescope/log/$(date -u +%F).jsonl
+```
+
+日期使用 UTC。日志写入失败会输出到服务标准错误，可通过 `journalctl -u kubescope` 检查。

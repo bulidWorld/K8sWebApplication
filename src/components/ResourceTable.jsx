@@ -2,6 +2,12 @@ import React from "react";
 import Badge from "./Badge.jsx";
 import { nodeReady, podStatus, containers, age } from "../lib/formatters.js";
 
+const eventTimestamp = (item) =>
+  item.series?.lastObservedTime ||
+  item.lastTimestamp ||
+  item.eventTime ||
+  item.metadata?.creationTimestamp;
+
 export default function ResourceTable({ kind, items, search, statusFilter, open }) {
   const status = (item) =>
     kind === "nodes"
@@ -37,6 +43,13 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
         .includes(search.toLowerCase()) &&
       (!statusFilter || status(item) === statusFilter),
   );
+  if (kind === "events") {
+    filtered.sort(
+      (a, b) =>
+        (Date.parse(eventTimestamp(b)) || 0) -
+        (Date.parse(eventTimestamp(a)) || 0),
+    );
+  }
   const storageHeaders = {
     persistentvolumeclaims: ["名称 / 命名空间", "状态", "申请 / 分配容量", "访问模式", "存储类", "绑定卷", "存续时间"],
     persistentvolumes: ["名称", "状态", "容量", "访问模式", "回收策略", "存储类", "绑定声明", "存续时间"],
@@ -222,11 +235,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open 
                       <td className="event-message">{item.message}</td>
                       <td>{item.count || 1}</td>
                       <td>
-                        {age(
-                          item.lastTimestamp ||
-                            item.eventTime ||
-                            meta.creationTimestamp,
-                        )}
+                        {age(eventTimestamp(item))}
                         前
                       </td>
                     </>

@@ -69,7 +69,7 @@ sudo env HOST=0.0.0.0 PORT=3000 K8S_WEB_TOKEN='replace-with-a-long-random-token'
 
 ## Ubuntu / master 节点部署
 
-完整步骤见 [DEPLOYE.md](DEPLOYE.md)。在本地执行 `bash package.sh` 完成依赖安装、测试和构建，将 `releases/` 中的部署包上传服务器，解压后目录自带版本号，例如 `/opt/kubescope-1.0.0`，无需在服务器安装 npm 依赖或构建源码。
+完整步骤见 [DEPLOYE.md](DEPLOYE.md)。在本地执行 `bash package.sh` 完成依赖安装、测试和构建，将 `releases/` 中的部署包上传服务器，解压后目录自带版本号，例如 `/opt/kubescope-1.0.0`，无需在服务器安装 npm 依赖或构建源码。服务器缺少 Node.js 时，`deploy.sh` 会调用随包提供的 `install_node.sh` 安装 Node.js 24 LTS（官方安装包并校验 SHA256）。
 
 打包后可运行 `bash remote_deploye.sh`，自动将最新构建包上传到 `192.168.100.132`，解压并通过 sudo 执行 deploy.sh。默认 SSH 用户为 `zhiwenxia`，可用 `--user` 修改；`--dry-run` 可先预览而不连接远端。升级时保留旧配置和扩容数据，完整参数见 `bash remote_deploye.sh --help`。
 
@@ -77,7 +77,7 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 
 ## 节点扩容
 
-节点页面提供“添加节点”：首次在页面自动识别并保存集群参数，填写新机器 IP、SSH 用户并核对指纹，输入登录密码和 sudo 密码后点击开始，即可自动预检、安装并入群。Web 以 root 运行，后台自动创建配置目录与文件，无需手动复制 JSON 或部署独立执行器。密码仅用于当前任务，不落盘。详见 [节点扩容说明](deploy/EXPANSION.md)。
+节点页面提供“添加节点”：首次在页面自动识别并保存集群参数，填写新机器 IP、SSH 用户并核对指纹，输入登录密码和 sudo 密码后，先对比 master 与新节点的 hosts 配置；页面显示原文、解析映射差异和修改预览，可确认合并或保持原配置，再开始预检、安装并入群。Web 以 root 运行，后台自动创建配置目录与文件，无需手动复制 JSON 或部署独立执行器。密码仅用于当前任务，不落盘。详见 [节点扩容说明](deploy/EXPANSION.md)。
 
 ## HTTP API
 
@@ -159,3 +159,46 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 配置在首次请求时加载，修改 kubeconfig/context 后需重启服务。客户端支持 CA、客户端证书、Bearer Token 和 kubeconfig exec 认证插件；exec 插件仍需其外部认证程序。旧的 `KUBECTL_PATH` 配置已停用，可删除。部署包包含生产依赖。
 
 API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文档](https://github.com/kubernetes-client/javascript/blob/main/docs/docs/intro.md)及 [kubeconfig 认证实现](https://github.com/kubernetes-client/javascript/blob/main/src/config.ts)，当前依赖版本为 `2.0.1`。
+
+### API Server 未启动与全新集群安装
+
+未配置当前集群或 API Server 连接被拒绝时，页面提示启动 K8s 集群或安装 K8s 集群服务。证书、权限等错误仍显示连接错误。
+
+集群服务操作需要 root 后端、有效的 `K8S_WEB_TOKEN` 和同源请求。操作仅作用于 Web 后端所在主机，远程集群须在远端控制平面操作。启动选项恢复本机 kubeadm 控制平面的 containerd 和 kubelet；未发现控制平面时提示安装。
+
+安装选项需填写本机非回环 IPv4 与完整 Kubernetes 版本（1.31–1.35）。安装沿用项目的 Ubuntu / containerd 版本策略，要求至少 2 CPU、约 2 GiB 内存、10 GiB 可用磁盘及 cgroup v2，并需要访问 Ubuntu、pkgs.k8s.io、GitHub 与容器镜像仓库。它关闭 swap、配置内核网络、安装 containerd、kubelet、kubeadm、kubectl，执行 kubeadm init，再安装固定版本 Flannel v0.26.7，等待 API、节点和系统 Pod 就绪。Pod CIDR 为 `10.244.0.0/16`，Service CIDR 为 `10.96.0.0/12`，安装前请确认宿主网络无冲突。控制平面保持默认调度污点，业务工作负载可通过现有节点扩容功能添加工作节点后部署。
+
+已有 admin.conf、kubelet.conf、etcd 数据或占用的 6443 端口会阻止全新初始化；不会自动 reset 或覆盖已有集群。部分初始化失败后需先检查日志和主机状态。后台任务状态保存在 `var/cluster/task.json`；服务重启后未完成任务显示中断。成功后将管理员 kubeconfig 以 0600 权限保存到 `var/cluster/kubeconfig`，控制台及后续重启优先使用它；如需切回原 kubeconfig，请由管理员移除此文件并重启 Web 服务。
+
+安装步骤参考 [kubeadm 创建集群文档](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/) 和 [Flannel 安装文档](https://github.com/flannel-io/flannel)。
+
+### 自建镜像仓库
+
+集群服务区域提供“自建镜像仓库”，填写仓库 IPv4、证书接口协议、端口和证书导出 Token 后点击配置。操作目标是运行 Web 后端的本机，需要 root 和已有 containerd 配置。后端直接调用 `server/registry-service.js` 的 `configureRegistry()`，在当前 Node.js 进程内完成请求、证书校验和文件操作，不启动独立 Node.js 进程，也不执行 registry.sh。仅 containerd 配置验证及 systemctl 服务重启调用系统命令。
+
+本机后端通过 Node.js 原生 HTTP/HTTPS 直连仓库 IP（绕过环境代理，临时服务错误最多重试两次），携带 Bearer Token 请求 `<协议>://<仓库IP>:<证书接口端口>/api/tls/bundle`，读取 `certificate` 和 `privateKey`。校验证书有效期、证书与私钥匹配及四个镜像域名后，备份并修改 `/etc/hosts`，将 `docker.io`、`registry-1.docker.io`、`ghcr.io`、`registry.k8s.io` 指向填写的 IP，保留其他域名和注释。证书接口协议可选择 HTTPS 或 HTTP，默认 HTTPS；端口可配置，HTTPS 默认 443、HTTP 默认 80；镜像仓库需监听 HTTPS 443，并预先存有所需镜像。
+
+证书和私钥存入 `/etc/kubescope/registry/`，目录权限 0700、私钥 0600。containerd 使用 `/etc/containerd/certs.d/<域名>/ca.crt` 和 `hosts.toml` 验证仓库 TLS，按配置版本 2/3 补齐对应 registry 表中的 `config_path`，先用 containerd 验证候选配置，再备份并写入正式配置、重启服务；拉取时不关闭 TLS 校验，也不使用仓库服务端私钥作为客户端身份。Token 仅用于本次请求，不保存到任务记录；表单在任务提交后清空 Token。
+
+本机 hosts 和 containerd 主配置备份分别为 `/etc/hosts.kubescope-registry-<时间>-<UUID>.bak`、`/etc/containerd/config.toml.kubescope-registry-<时间>-<UUID>.bak`。失败日志包含阶段、文件路径及 JavaScript 堆栈，并过滤 Token 和私钥。本机配置入口仅操作 Web 后端主机；工作节点可在“节点扩容”中勾选“使用自建镜像仓库”，填写仓库 IP 和 Token。扩容流程在安装 containerd 后、执行 kubeadm join 前，通过 SSH 执行 `server/provision/registry.sh` 在目标节点获取 bundle（远程节点无需 Node.js）、修改 hosts 并配置证书；仓库配置失败会停止入群。每次扩容需重新填写 Token，Token 不保存到扩容配置或任务记录。配置失败时检查任务日志及备份，完成实际镜像拉取验证后再部署业务。
+
+### 集群部署镜像检查
+
+在“K8s 集群服务”中填写完整 Kubernetes 版本，点击“解析所需镜像”。后端使用 `kubeadm config images list --kubernetes-version` 获取控制平面、etcd、CoreDNS、pause 等清单，并解析安装流程共用的 Flannel v0.26.7 YAML，合并普通容器及初始化容器镜像。需要本机预先安装 kubeadm，且能够访问 Flannel 配置下载地址。
+
+解析只生成清单，不会自动拉取。列表支持“一键拉取全部镜像”和逐项“拉取 / 重试”，通过本机 containerd 的 `ctr` 拉取至 `k8s.io` 命名空间，使用 `/etc/containerd/certs.d` 的仓库及证书配置。批量拉取中单项失败不影响其余镜像；页面显示每项状态与错误，结果随任务持久化。内容完整且已解包的镜像直接复用，其余补齐。需先启动 containerd；自建仓库请先完成仓库配置。操作目标为 Web 后端所在节点。
+
+### 分步骤部署 K8s 集群
+
+进入部署向导，按页面顺序手动执行，在需要时填写对应配置：
+
+1. 安装 containerd：无需填写版本或 IP。先检查已有运行时及 CRI；可用时保留配置并复用，未安装时准备主机环境并安装。
+2. 配置镜像仓库：可选，也可使用默认镜像源。
+3. 安装 Kubernetes 工具：在此选择完整版本，已安装目标版本的 kubeadm、kubelet、kubectl 会复用，缺失组件会补齐；版本不一致时停止并提示。
+4. 解析所需镜像：读取 kubeadm 与 Flannel 镜像清单，展示镜像地址、来源和状态；此步不下载镜像。
+5. 拉取镜像：一键拉取全部镜像，或逐项拉取、重试。全部镜像就绪后才能继续初始化；重新解析新增的镜像也需完成拉取。
+6. 初始化控制平面：在此确认自动检测的本机 IPv4，可手动修改。已有控制平面只核对版本、IP 和就绪状态，不重复初始化。
+7. 安装 Flannel 网络插件：已有 DaemonSet 时检查就绪状态，否则安装。
+8. 验证集群：检查 API Server、节点、系统 Pod 和 Flannel 就绪，加载集群连接。
+
+每次点击只执行选中步骤，前置步骤成功后才可继续。已完成步骤也可点击“重新检查并执行”；失败或服务重启中断后可重试。版本在首次执行工具安装时锁定，IP 在首次执行初始化时锁定，刷新页面会恢复配置、进度及各步日志。旧部署记录中已锁定的配置继续沿用。初始化失败时不会自动 reset；若留下不完整配置，需要人工检查处理后再重试。

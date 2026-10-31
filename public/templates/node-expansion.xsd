@@ -1,0 +1,189 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="unqualified" attributeFormDefault="unqualified">
+  <xs:annotation>
+    <xs:documentation xml:lang="zh-CN">节点扩容 XML 格式，第 1 版。一个文件定义一个待添加节点；文件使用 UTF-8，无默认命名空间，最大 64 KiB。子元素按 target、credentials、hosts、registry 顺序填写。导入仅填充添加节点向导，不立即连接或执行安装；仍需获取并核对 SSH 指纹、确认 hosts 修改并点击开始扩容。集群参数沿用页面配置。禁止 DOCTYPE 和自定义实体声明。XSD 校验结构及基本格式；页面和服务端还会校验 IP、重复主机名和回环映射冲突等语义约束。</xs:documentation>
+  </xs:annotation>
+  <xs:simpleType name="IPv4Address">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">点分十进制 IPv4 地址，四段均为 0–255；除单个 0 外不接受前导零。用于 SSH 目标及镜像仓库地址。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Port">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">TCP 端口，范围 1–65535。SSH 省略时使用 22；仓库省略时 HTTPS 使用 443，HTTP 使用 80。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:positiveInteger">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="65535"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="UserName">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">SSH 登录用户名，以小写字母或下划线开头，后续仅允许小写字母、数字、下划线及连字符。例如 root、ubuntu。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z_][a-z0-9_-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="NodeName">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">加入 Kubernetes 后的节点名称，长度 1–63；首字符为小写字母或数字，后续为小写字母、数字或连字符。名称及机器地址不能与已登记节点冲突，服务端在登记时校验。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-z0-9][a-z0-9-]{0,62}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Secret">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">可选凭据；允许空字符串且保留首尾空格，最长 3072 字符，不得含回车、换行或空字符。XML 中 &amp; 和 &lt; 须分别写为 &amp;amp; 和 &amp;lt;，也可使用 CDATA。导入文件若含凭据，应妥善保管。凭据只填入当前向导，不保存到目标配置或日志；未填写时可在后续步骤输入。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="3072"/>
+      <xs:pattern value="[^\r\n]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="HostsIP">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">hosts 映射的非回环 IPv4 或 IPv6 字面地址；不支持 CIDR、端口、方括号或区域标识。IPv6 支持压缩格式。XSD 仅限定字符，导入时进一步校验完整地址并拒绝 127.0.0.0/8 和 ::1。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:minLength value="2"/>
+      <xs:pattern value="[0-9a-fA-F:.]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="HostsNames">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">一个或多个主机名/别名，以空格或制表符分隔。例如 registry.internal registry。每个名称只允许英文字母、数字、下划线、点、连字符。相同名称（忽略大小写）不得映射到不同 IP；由导入程序校验。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[a-zA-Z0-9_.-]+([ \t]+[a-zA-Z0-9_.-]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="RegistryProtocol">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">镜像仓库证书导出接口协议，默认 https。</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="http"/>
+      <xs:enumeration value="https"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:element name="nodeExpansion">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">节点导入根元素。version 必须为 1；可添加 xsi:noNamespaceSchemaLocation="node-expansion.xsd" 供编辑器定位本 XSD。该引用不会触发页面下载或执行外部资源。</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="target">
+          <xs:annotation>
+            <xs:documentation xml:lang="zh-CN">必填，待添加机器的 SSH 地址、登录账号与节点名称。导入后需重新获取并确认主机指纹；XML 不能预先声明信任。</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:attribute name="host" type="IPv4Address" use="required">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">必填，新节点 IPv4 地址，例如 192.168.1.21。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="port" type="Port" default="22">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">可选，SSH 服务端口，默认 22。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="user" type="UserName" use="required">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">必填，SSH 登录用户。非 root 用户需有 sudo 权限，并在登录授权步骤确认 sudo 密码。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="nodeName" type="NodeName" use="required">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">必填，节点名称，例如 worker-02。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="credentials" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="zh-CN">可选，当前任务的登录授权；省略后可在页面填写。密码使用子元素文本，避免属性值的 XML 空白归一化。</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="sshPassword" type="Secret" minOccurs="0">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">SSH 登录密码，可省略并在页面填写。新导入的机器使用密码登录。</xs:documentation>
+                </xs:annotation>
+              </xs:element>
+              <xs:element name="sudoPassword" type="Secret" minOccurs="0">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">非 root 用户的 sudo 密码。省略此元素表示默认复用 SSH 密码；显式写空元素 &lt;sudoPassword/&gt; 表示不复用，适用于免密 sudo。root 用户无需填写。</xs:documentation>
+                </xs:annotation>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="hosts" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="zh-CN">可选，只定义需要写入新节点 /etc/hosts 的新增 IP—主机名映射（不填写整个文件，也不需要填写 master 配置）。省略或留空表示保留新节点 hosts。最多 2048 条 mapping；不自动选择 master 的差异。确认写入时，已有同名非回环映射会替换，其余条目保留；回环主机名冲突会拒绝。写入前自动备份，并检查读取后的文件是否变化。</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="mapping" minOccurs="0" maxOccurs="2048">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">一条待新增的映射；一个 IP 可绑定多个主机名。导入后可在 hosts 步骤预览、取消勾选或编辑；点击确认添加所选条目后才写入。</xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                  <xs:attribute name="ip" type="HostsIP" use="required">
+                    <xs:annotation>
+                      <xs:documentation xml:lang="zh-CN">必填，新增解析地址，例如 192.168.1.30 或 2001:db8::30。禁止回环地址。</xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="names" type="HostsNames" use="required">
+                    <xs:annotation>
+                      <xs:documentation xml:lang="zh-CN">必填，主机名及可选别名，例如 registry.internal registry；无需填写 hosts 注释或原有记录。</xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="registry" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="zh-CN">可选，出现即启用自建镜像仓库；省略则不启用。后续步骤会在新节点拉取并校验 TLS 证书。成功后才可执行扩容；扩容阶段再配置仓库相关 hosts 和 containerd。</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="token" type="Secret" minOccurs="0">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">证书导出接口 /api/tls/bundle 的访问 Token；省略时须在镜像仓库步骤输入。不会保存到配置或日志。</xs:documentation>
+                </xs:annotation>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="ip" type="IPv4Address" use="required">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">必填，自建镜像仓库 IPv4 地址。扩容时将 docker.io、registry-1.docker.io、ghcr.io、registry.k8s.io 指向此地址。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="protocol" type="RegistryProtocol" default="https">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">可选，证书导出接口协议，默认 https。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="port" type="Port">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">可选，证书接口端口。默认随协议变化：http 为 80，https 为 443；此动态默认值由导入程序应用。</xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:string" use="required" fixed="1">
+        <xs:annotation>
+          <xs:documentation xml:lang="zh-CN">必填，固定值 1，表示本文档格式版本。</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

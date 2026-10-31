@@ -19,9 +19,9 @@ Web 服务在 master 上以 root 运行，扩容直接在 Web 后端执行，无
 
 支持 kubeadm Worker、Ubuntu 22.04/24.04/26.04（含维护版本）、x86_64/aarch64、IPv4、cgroup v2、containerd 1.x/2.x、Kubernetes 1.31–1.35。新节点至少 2 CPU、约 2 GiB 内存、10 GiB 空闲空间。
 
-master 需要已安装 Node.js >=22.12、`/usr/bin/kubectl`、`/usr/bin/kubeadm`，并有可用 kubeconfig；kubeadm 与 API Server 完整版本必须一致。旧版密钥目标仍依赖 `/usr/bin/ssh`。这些是现有 master 的部署前提，页面不会自动升级 master 或创建新 Kubernetes 集群。
+master 需要已安装 Node.js >=22.12、`/usr/bin/kubectl`、`/usr/bin/kubeadm`，并有可用 kubeconfig；kubeadm 与 API Server 完整版本必须一致。旧版密钥目标仍依赖 `/usr/bin/ssh`。这些是向现有集群扩容的部署前提，扩容流程不会升级 master 或创建新集群。无 API Server 端口时可使用独立的“安装 K8s 集群服务”入口从零安装本机控制平面，详见 README。
 
-新节点需要操作系统、SSH 服务、可登录的用户以及网络。页面新登记机器通过 SSH 密码登录，因此 SSH 服务须允许该用户的密码认证；普通用户需有 sudo 授权，无需预先配置 NOPASSWD。软件源、镜像仓库和节点间 CNI 网络应可达。当前不提供离线安装、控制平面扩容、多网卡选择或业务存储/私有仓库自动配置。
+新节点需要操作系统、SSH 服务、可登录的用户以及网络。页面新登记机器通过 SSH 密码登录，因此 SSH 服务须允许该用户的密码认证；普通用户需有 sudo 授权，无需预先配置 NOPASSWD。软件源、镜像仓库和节点间 CNI 网络应可达。当前不提供离线安装、控制平面扩容、多网卡选择或业务存储自动配置。
 
 ## 保存位置与权限
 
@@ -78,3 +78,20 @@ Web 意外中断时远程安装可能继续，恢复前需检查目标进程和 
 页面打开节点扩容的历史任务，查看执行进度、错误摘要和日志，可下载当前保留的脱敏日志。master 默认保存在应用目录 `var/expansion/tasks/tasks.json`；导入的旧配置可能使用原 stateDirectory。该文件仅 root 可读写。
 
 Web 服务自身日志在 master 的 `journalctl -u kubescope`。新节点的服务日志在 `journalctl -u kubelet -u containerd`，包管理日志在 `/var/log/apt/term.log`。旧版丢弃的远程输出不能追溯恢复；需要从新节点原始系统日志诊断，或更新后重新提交尚未入群的任务。不应对已部分入群的机器盲目重试。
+
+
+### 扩容前对比 hosts
+
+登录授权后，点击“读取并对比 hosts”。master 指运行 Web 服务的主机；通过已确认指纹的 SSH 读取新节点 `/etc/hosts`。页面展示两端原文及有效解析差异（忽略注释、空白、顺序、大小写和回环地址）。
+
+有差异时可选择“确认修改新节点 hosts”或“保持原配置，继续扩容”。修改会合并 master 的非回环映射，同名映射以 master 为准，保留新节点回环配置、独有映射及未冲突别名。master 映射与新节点回环主机名冲突时，需手动处理后重新对比。master 文件不会修改。
+
+确认修改前会展示最终文件内容，写入时在新节点创建 `/etc/hosts.kubescope-<ID>.bak` 备份并在页面返回路径。对比有效期为 5 分钟，绑定目标及主机指纹，写入前检查两端文件是否变化，变化后需重新对比。密码沿现有 SSH / sudo 通道传输，不写入配置或任务记录。
+
+## 扩容时配置自建镜像仓库
+
+在“节点扩容”的“工作节点镜像仓库”区域勾选“使用自建镜像仓库”，输入仓库 IPv4、证书接口协议（HTTPS/HTTP）和端口（默认分别为 443/80）和证书导出 Token 后点击“开始扩容”。原 hosts 对比步骤仍需完成；启用仓库配置后，会在新节点安装 containerd 后、入群前，将 docker.io、registry-1.docker.io、ghcr.io、registry.k8s.io 的映射替换为仓库 IP。
+
+证书包由工作节点通过 `curl -kfsS` 携带 Bearer Token 请求 `<协议>://<仓库IP>:<证书接口端口>/api/tls/bundle` 获取，仓库必须从工作节点可达。校验证书有效期、域名及密钥匹配后配置 containerd 的 hosts.toml 和证书信任，并重启 containerd。hosts 和 containerd 主配置会在目标节点备份；证书与私钥保存于目标节点 `/etc/kubescope/registry/`，私钥权限 0600。拉取镜像时启用 TLS 验证。仓库配置失败会停止入群，并按现有流程保留失败阶段、采集诊断日志。
+
+Token 仅随本次扩容请求通过 SSH 输入传递，不写入扩容配置、任务记录或命令参数；表单提交后清空。关闭或切换扩容面板也会清空 Token。未勾选时沿用原扩容流程。已经入群的节点不会因本次操作被修改。

@@ -1,18 +1,19 @@
-import React, { useState, useCallback } from "react";
-import { sections, labels } from "./lib/resources.js";
+import React, { useState, useCallback, useEffect } from "react";
+import { labels } from "./lib/resources.js";
 import { podStatus } from "./lib/formatters.js";
 import useClusterData from "./hooks/useClusterData.js";
 import ResourceDialog from "./components/ResourceDialog.jsx";
 import OverviewPage from "./pages/OverviewPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
 
+import ClusterService from "./components/ClusterService.jsx";
 import NodeExpansion from "./components/NodeExpansion.jsx";
 import SidebarNav from './components/SidebarNav.jsx';
 import { deploymentModuleTitles } from './lib/navigation.js';
+import { parseRoute, routeHash } from './lib/routes.js';
 
 export default function App() {
-  const [deploymentModule, setDeploymentModule] = useState('');
-  const [section, setSection] = useState("overview");
+  const [{ section, deploymentModule }, setRoute] = useState(() => parseRoute(window.location.hash));
   const [namespace, setNamespace] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -26,12 +27,38 @@ export default function App() {
     (kind, item, initialTab) => setSelection({ kind, item, initialTab }),
     [],
   );
-  const { data, errors, health, loading, updated, setRefresh } = useClusterData({ namespace, token, auto });
-  function navigate(next) {
-    setSection(next);
+  const { data, errors, health, loading, updated, setRefresh, checking } = useClusterData({ namespace, token, auto });
+  const setupOnly = health?.needsCluster === true;
+  const resetNavigation = useCallback(() => {
     setSearch("");
     setStatusFilter("");
     setMobile(false);
+    setSelection(null);
+    setSettings(false);
+  }, []);
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = parseRoute(window.location.hash);
+      const canonicalHash = routeHash(route.section, route.deploymentModule);
+      if (window.location.hash !== canonicalHash) {
+        window.history.replaceState(window.history.state, '', canonicalHash);
+      }
+      setRoute(route);
+      resetNavigation();
+    };
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    window.addEventListener('hashchange', syncRoute);
+    return () => {
+      window.removeEventListener('popstate', syncRoute);
+      window.removeEventListener('hashchange', syncRoute);
+    };
+  }, [resetNavigation]);
+  function navigate(next, module = '') {
+    const hash = routeHash(next, module);
+    if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+    setRoute(parseRoute(hash));
+    resetNavigation();
   }
   const pods = data.pods || [];
   const statuses =
@@ -48,11 +75,32 @@ export default function App() {
               : ["persistentvolumeclaims", "persistentvolumes"].includes(section)
                 ? [...new Set((data[section] || []).map((item) => item.status?.phase || "Unknown"))].sort()
                 : [];
+  if (!token || checking || (health?.error && !health?.needsCluster)) {
+    return <main className="token-entry">
+      <section className="panel token-entry-card" aria-labelledby="token-entry-title">
+        <div className="eyebrow">KUBESCOPE</div>
+        <h1 id="token-entry-title">{checking ? '正在检测集群' : '配置访问 Token'}</h1>
+        <p>{checking ? '正在验证 Token 并检查 K8s 集群连接，请稍候…' : '请输入 Web 服务配置的访问 Token，连接后查看集群状态或安装集群。'}</p>
+        {checking ? <div className="token-checking" role="status"><span className="spin">↻</span> 正在连接…</div> : <form onSubmit={e => {
+          e.preventDefault();
+          const nextToken = tokenDraft.trim();
+          if (!nextToken) return;
+          setToken(nextToken);
+          setRefresh(n => n + 1);
+        }}>
+          <label htmlFor="entry-token">访问 Token</label>
+          <input id="entry-token" type="password" required autoFocus autoComplete="off" placeholder="请输入 K8S_WEB_TOKEN" value={tokenDraft} onChange={e => setTokenDraft(e.target.value)} />
+          {health?.error && <p className="error" role="alert">{health.status === 401 || health.status === 403 ? 'Token 验证失败，请检查后重新输入。' : `连接检查失败：${health.error}`}</p>}
+          <button className="button primary" disabled={!tokenDraft.trim() || loading}>{loading ? '正在检测…' : '连接并检测集群'}</button>
+        </form>}
+      </section>
+    </main>;
+  }
   return (
-    <div className="app">
-      <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
+    <div className={`app ${setupOnly ? "cluster-setup-app" : ""}`}>
+      {!setupOnly && <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
         <a
-          href="#"
+          href="#/overview"
           className="brand"
           onClick={(e) => {
             e.preventDefault();
@@ -75,7 +123,7 @@ export default function App() {
           />
         </div>
         <div className="nav-label">工作空间</div>
-        <SidebarNav section={section} deploymentModule={deploymentModule} data={data} onNavigate={(key, module) => { setDeploymentModule(module); navigate(key); }} />
+        <SidebarNav section={section} deploymentModule={deploymentModule} data={data} onNavigate={navigate} />
         <div className="sidebar-bottom">
           <div className="readonly">
             <span>◉</span> 集群运维控制台
@@ -95,8 +143,8 @@ export default function App() {
             KubeScope <span>v1.0.0</span>
           </div>
         </div>
-      </aside>
-      {mobile && (
+      </aside>}
+      {!setupOnly && mobile && (
         <button
           className="backdrop"
           aria-label="关闭导航"
@@ -104,7 +152,7 @@ export default function App() {
         />
       )}
       <main>
-        <header className="topbar">
+        {!setupOnly && <header className="topbar">
           <div className="breadcrumb">
             <button
               className="mobile-menu icon-button"
@@ -130,14 +178,14 @@ export default function App() {
             </span>
             <span className="avatar">K</span>
           </div>
-        </header>
+        </header>}
         <div className="content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">CLUSTER WORKSPACE</div>
-              <h1>{section === 'deployments' && deploymentModule ? deploymentModuleTitles[deploymentModule] : labels[section]}</h1>
+              <div className="eyebrow">{setupOnly ? 'KUBESCOPE / 集群部署' : 'CLUSTER WORKSPACE'}</div>
+              <h1>{setupOnly ? '创建 Kubernetes 集群' : section === 'deployments' && deploymentModule ? deploymentModuleTitles[deploymentModule] : labels[section]}</h1>
               <p>
-                {section === "overview"
+                {setupOnly ? "尚未连接集群。完成下方部署，或检测已有集群连接。" : section === "overview"
                   ? "掌握集群运行状态，让每一次运维都有据可循。"
                   : section === 'deployments' && deploymentModule
                     ? '先选择目标 Deployment，再编辑并单独保存此配置模块。'
@@ -150,7 +198,7 @@ export default function App() {
               onClick={() => setRefresh((n) => n + 1)}
             >
               <span className={loading ? "spin" : ""}>↻</span>
-              {loading ? "刷新中" : "刷新数据"}
+              {loading ? "检测中…" : setupOnly ? "检测连接" : "刷新数据"}
             </button>
           </div>
           {settings && (
@@ -188,7 +236,8 @@ export default function App() {
               </form>
             </section>
           )}
-          {!loading && health?.error && (
+          {setupOnly && <ClusterService setupOnly={setupOnly} health={health} token={token} onRefresh={() => setRefresh(n => n + 1)} onSettings={() => setSettings(true)} />}
+          {!loading && health?.error && !health?.needsCluster && (
             <div className="error" role="alert">
               <strong>集群连接检查失败</strong>
               <span>{health.error}</span>
@@ -197,8 +246,9 @@ export default function App() {
               </button>
             </div>
           )}
-          <div className="scope-bar">
-            <div className="scope-select">
+          {!setupOnly && <>
+          {section !== "overview" && <div className="scope-bar">
+            {section !== "nodes" && <div className="scope-select">
               <span>▦</span>
               <label htmlFor="namespace">命名空间</label>
               <select
@@ -218,7 +268,7 @@ export default function App() {
                   <option key={n.metadata.name}>{n.metadata.name}</option>
                 ))}
               </select>
-            </div>
+            </div>}
             <div className="update-meta">
               <label className="check">
                 <input
@@ -234,7 +284,7 @@ export default function App() {
                   : "等待数据"}
               </span>
             </div>
-          </div>
+          </div>}
           {section === "nodes" && <NodeExpansion token={token} onUpdated={() => setRefresh(n => n + 1)} />}
           {section === "overview" ? (
             <OverviewPage data={data} errors={errors} loading={loading} namespace={namespace} navigate={navigate} open={open} />
@@ -248,9 +298,10 @@ export default function App() {
             </span>
             <span>KubeScope / Kubernetes 运维工作空间</span>
           </footer>
+          </>}
         </div>
       </main>
-      {selection && (
+      {!setupOnly && selection && (
         <ResourceDialog
           key={`${selection.kind}/${selection.item.metadata.uid || selection.item.metadata.name}`}
           selection={selection}

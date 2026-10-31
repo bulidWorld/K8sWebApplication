@@ -1,4 +1,8 @@
 import http from "node:http";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+export const managedKubeconfig = fileURLToPath(new URL("../var/cluster/kubeconfig", import.meta.url));
 import https from "node:https";
 import { KubeConfig } from "@kubernetes/client-node";
 
@@ -42,10 +46,20 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
   function configuration() {
     if (!kc) {
       const loaded = new KubeConfig();
-      loaded.loadFromDefault();
+      if (existsSync(managedKubeconfig)) loaded.loadFromFile(managedKubeconfig);
+      else {
+        try { loaded.loadFromDefault(); }
+        catch (error) {
+          const configuredFiles = (process.env.KUBECONFIG || '').split(path.delimiter).filter(Boolean);
+          if (error.code === 'ENOENT' && configuredFiles.some(file => path.resolve(file) === error.path)) {
+            throw Object.assign(new Error('kubeconfig 文件尚不存在，请连接或分步安装 K8s 集群'), { code: 'NO_CLUSTER' });
+          }
+          throw error;
+        }
+      }
       kc = loaded;
     }
-    if (!kc.getCurrentCluster()) throw new Error("kubeconfig 未配置当前集群");
+    if (!kc.getCurrentCluster()) throw Object.assign(new Error("kubeconfig 未配置当前集群"), { code: "NO_CLUSTER" });
     return kc;
   }
   async function request(apiPath, json = true, mutation) {
@@ -59,7 +73,8 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
           const cluster = config.getCurrentCluster();
           const target = new URL(cluster.server.replace(/\/$/, "") + apiPath);
           if (!["https:", "http:"].includes(target.protocol)) throw new Error("不支持的 API server 协议");
-          const options = { headers: { Accept: json ? "application/json" : "text/plain" } };
+          // Log bodies are text, but API errors are serialized Kubernetes Status objects.
+          const options = { headers: { Accept: json ? "application/json" : "text/plain, application/json" } };
           if (mutation) options.headers['Content-Type'] = 'application/json-patch+json';
           await config.applyToHTTPSOptions(options);
           if (controller.signal.aborted) throw new Error("访问 Kubernetes 超时，请检查集群连接。");
@@ -95,8 +110,8 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
         return await Promise.race([operation(), aborted]);
       } finally { clearTimeout(timer); }
     } catch (error) {
-      throw Object.assign(new Error(error.message || "Kubernetes API 请求失败"), { status: mutation ? error.status || 502 : 502 });
+      throw Object.assign(new Error(error.message || "Kubernetes API 请求失败"), { status: mutation ? error.status || 502 : 502, code: error.code });
     }
   }
-  return { request, context: () => configuration().getCurrentContext() };
+  return { request, reload: file => { const loaded = new KubeConfig(); loaded.loadFromFile(file); kc = loaded; }, context: () => configuration().getCurrentContext() };
 }

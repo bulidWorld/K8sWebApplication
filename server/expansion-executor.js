@@ -1,3 +1,4 @@
+import { validateRegistry, registryEnvironment } from './registry-config.js';
 // Task engine embedded in the root web process. Configuration and keys are root-owned.
 import {
   readFile,
@@ -10,6 +11,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { isIP } from "node:net";
 import path from "node:path";
 import { createLogCollector, redactLog } from "./expansion-logs.js";
+import { createHostsService } from "./expansion-hosts.js";
 import { remoteSsh } from "./remote-ssh.js";
 
 const fail = (message, status = 400) => {
@@ -197,6 +199,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
       { onOutput },
     ).finally(() => currentLog?.flush());
   };
+  const hosts = createHostsService({ ssh });
   async function step(task, label, action) {
     task.stage = label;
     task.logs.push(`${new Date().toISOString()} ${label}`);
@@ -245,16 +248,29 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
       sshPassword,
     );
   }
-  async function execute(task, joining, password, sshPassword) {
+  async function execute(task, joining, password, sshPassword, registry, prepared) {
     const target = c.targets.find((t) => t.id === task.targetId);
     let tokenId, installationStarted = false, logTimer;
     const addLog = (source, line) => {
       task.logs.push(`${new Date().toISOString()} [${source}] ${line}`);
+      const progress = task.kind === 'registry' && line.match(/^\[registry-progress:(20|60|100)\] (.+)$/);
+      if (progress) { task.progress = Number(progress[1]); task.stage = progress[2]; }
       while (task.logs.length > 400 || Buffer.byteLength(task.logs.join('\n')) > 64 * 1024) { task.logs.shift(); task.logsTruncated = true; }
       if (!logTimer) logTimer = setTimeout(() => { logTimer = undefined; persist().catch(() => {}); }, 250);
     };
-    currentLog = createLogCollector([password, sshPassword], addLog);
+    currentLog = createLogCollector([password, sshPassword, registry?.token], addLog);
     try {
+      if (task.kind === 'registry') {
+        task.progress = 5;
+        await step(task, '连接新节点并拉取仓库证书', async () => {
+          const script = await readFile(new URL('./provision/registry.sh', import.meta.url), 'utf8');
+          await ssh(target, registryEnvironment(registry) + `export REGISTRY_MODE=prepare\nexport REGISTRY_CACHE='/etc/kubescope/registry/prepared/${task.id}'\n` + script, password, sshPassword);
+        });
+        task.progress = 100;
+        task.status = 'succeeded';
+        task.stage = '证书拉取和校验完成，可以开始扩容';
+        return;
+      }
       await step(task, "检查集群版本、SSH、系统与网络", () =>
         check(task, target, password, sshPassword),
       );
@@ -281,6 +297,15 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
           );
         },
       );
+      if (registry || prepared) {
+        await step(task, "配置工作节点自建镜像仓库、hosts 和 TLS 证书", async () => {
+          const script = await readFile(new URL("./provision/registry.sh", import.meta.url), "utf8");
+          const environment = prepared
+            ? `export REGISTRY_IP='${prepared.registry.ip}'\nexport REGISTRY_MODE=apply\nexport REGISTRY_CACHE='/etc/kubescope/registry/prepared/${prepared.id}'\n`
+            : registryEnvironment(registry);
+          await ssh(target, environment + script, password, sshPassword);
+        });
+      }
       await step(task, "生成临时凭据并加入集群", async () => {
         const localVersion = JSON.parse(
           await localRun("/usr/bin/kubeadm", ["version", "-o", "json"]),
@@ -382,7 +407,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
     } catch (e) {
       currentLog.flush();
       task.failedStage = task.stage;
-      task.error = redactLog(e.message, [password, sshPassword]);
+      task.error = redactLog(e.message, [password, sshPassword, registry?.token]);
       addLog("error", task.error);
       if (installationStarted && !/sudo|认证|指纹/.test(task.error)) {
         task.stage = "扩容失败，正在收集节点诊断日志";
@@ -390,9 +415,9 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
         try {
           const diagnostic = await readFile(new URL("./provision/diagnostics.sh", import.meta.url), "utf8");
           await ssh(target, diagnostic, password, sshPassword, 30000);
-        } catch (diagnosticError) { addLog("diagnostic", redactLog(diagnosticError.message, [password, sshPassword])); }
+        } catch (diagnosticError) { addLog("diagnostic", redactLog(diagnosticError.message, [password, sshPassword, registry?.token])); }
       }
-      task.stage = `扩容失败：${task.failedStage}`;
+      task.stage = `${task.kind === 'registry' ? '证书拉取失败' : '扩容失败'}：${task.failedStage}`;
       task.status = "failed";
     } finally {
       password = "";
@@ -430,29 +455,51 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
         targets: c.targets.map(publicTarget),
         tasks: tasks.slice(-50).reverse(),
       };
+    if (method === "GET" && pathname === "/tasks")
+      return { tasks: tasks.slice().reverse().map(({ logs, ...task }) => task) };
     const match = pathname.match(/^\/tasks\/([a-f0-9-]{36})(\/start)?$/);
     if (method === "GET" && match && !match[2])
       return tasks.find((t) => t.id === match[1]) || fail("任务不存在", 404);
     if (method !== "POST") fail("接口不存在", 404);
     let password = validatePassword(body.sudoPassword);
     let sshPassword = validatePassword(body.sshPassword);
+    const registry = body.registry !== undefined ? validateRegistry(body.registry) : undefined;
+    delete body.registry;
+    if (registry && pathname !== "/registry/prepare" && pathname !== "/tasks" && !match?.[2]) fail("仓库配置仅用于扩容任务");
+    if (registry && pathname === "/tasks" && body.start !== true) fail("配置镜像仓库需要开始扩容");
     delete body.sshPassword;
     if (body.start !== undefined && typeof body.start !== "boolean") fail("start 必须是布尔值");
     delete body.sudoPassword;
     if (busy) fail("已有扩容任务执行中，请等待完成", 409);
-    if (pathname === "/tasks") {
+    if (pathname === "/hosts/compare" || pathname === "/hosts/apply") {
+      const target = c.targets.find(t => t.id === body.targetId);
+      if (!target) fail("目标机器不在允许列表");
+      if (target.auth === "password" && !sshPassword) fail("请输入新节点 SSH 登录密码");
+      return hosts(pathname, target, body, password, sshPassword);
+    }
+    if (pathname === "/tasks" || pathname === "/registry/prepare") {
+      const preparing = pathname === '/registry/prepare';
+      if (preparing && !registry) fail('请填写镜像仓库配置');
+      if (preparing && (body.start !== undefined || body.registryTaskId !== undefined)) fail('证书拉取请求字段无效');
+      if (registry && body.registryTaskId !== undefined) fail('不能同时提交仓库配置和已拉取证书');
       const target = c.targets.find((t) => t.id === body.targetId);
       if (!target) fail("目标机器不在允许列表");
       if (target.auth === "password" && !sshPassword) fail("请输入新节点 SSH 登录密码");
-      if (Object.keys(body).some((k) => !["targetId", "source", "start"].includes(k)))
+      if (Object.keys(body).some((k) => !["targetId", "source", "start", "registryTaskId"].includes(k)))
         fail("不支持的请求字段");
       if (tasks.length >= 1000) fail("任务历史已达上限，请管理员归档", 409);
+      let prepared;
+      if (body.registryTaskId !== undefined) {
+        prepared = tasks.find(t => t.id === body.registryTaskId);
+        if (!body.start || !prepared || prepared.kind !== 'registry' || prepared.status !== 'succeeded' || prepared.targetId !== target.id || prepared.target.revision !== targetRevision(target)) fail('证书任务无效，请重新拉取证书', 409);
+      }
       const task = {
+        ...(preparing ? { kind: 'registry', progress: 0, registry: { ip: registry.ip, protocol: registry.protocol, port: registry.port } } : {}),
         id: randomUUID(),
         targetId: target.id,
         target: publicTarget(target),
-        status: body.start ? "running" : "checking",
-        stage: "等待预检",
+        status: preparing || body.start ? "running" : "checking",
+        stage: preparing ? "等待拉取证书" : "等待预检",
         logs: [],
         source: body.source,
         createdAt: new Date().toISOString(),
@@ -469,7 +516,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
         throw e;
       }
       setImmediate(() =>
-        execute(task, joining, password, sshPassword).catch((e) => {
+        execute(task, joining, password, sshPassword, registry, prepared).catch((e) => {
           console.error("Task persistence failure:", e.message);
           process.exit(1);
         }),
@@ -490,7 +537,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
       busy = true;
       await persist();
       setImmediate(() =>
-        execute(task, true, password, sshPassword).catch((e) => {
+        execute(task, true, password, sshPassword, registry).catch((e) => {
           console.error("Task persistence failure:", e.message);
           process.exit(1);
         }),
