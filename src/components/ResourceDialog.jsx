@@ -5,13 +5,21 @@ import download from "../lib/download.js";
 import NodeLabels from './NodeLabels.jsx';
 import DeploymentConfig from './DeploymentConfig.jsx';
 
-export default function ResourceDialog({ selection, close, token, onUpdated }) {
+export default function ResourceDialog({ selection, close, token, onUpdated, onTabChange, registerNavigationGuard }) {
   const { kind, item: initialItem, initialTab } = selection;
   const [item, setItem] = useState(initialItem);
-  const [tab, setTab] = useState(initialTab?.startsWith('config:') ? 'config' : initialTab || "detail");
+  const tab = initialTab?.startsWith('config:') ? 'config' : initialTab || 'detail';
   const [configDirty, setConfigDirty] = useState(false);
-  const safeClose = () => { if (!configDirty || window.confirm('有未保存的配置修改，确定放弃并关闭吗？')) close(); };
-  const switchTab = next => { if (!configDirty || window.confirm('有未保存的配置修改，确定放弃并切换吗？')) setTab(next); };
+  useEffect(() => registerNavigationGuard(() => !configDirty || window.confirm('有未保存的配置修改，确定放弃并离开吗？')), [configDirty, registerNavigationGuard]);
+  useEffect(() => { setItem(initialItem); }, [initialItem]);
+  useEffect(() => {
+    if (!configDirty) return;
+    const warn = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [configDirty]);
+  const safeClose = close;
+  const switchTab = next => onTabChange(next === 'config' && initialTab?.startsWith('config:') ? initialTab : next);
   const [container, setContainer] = useState(
     item.spec?.containers?.[0]?.name || "",
   );
@@ -94,7 +102,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated }) {
         {kind === "pods" && (
           <button
             className={tab === "logs" ? "selected" : ""}
-            onClick={() => setTab("logs")}
+            onClick={() => switchTab("logs")}
           >
             容器日志
           </button>

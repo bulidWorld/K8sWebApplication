@@ -6,13 +6,13 @@ const active = task => ['checking', 'running'].includes(task?.status);
 const states = { checking: '预检中', checked: '预检通过', running: '扩容中', succeeded: '扩容完成', failed: '失败', interrupted: '已中断' };
 const wizardSteps = ['目标机器', '登录授权', 'hosts 对比', '镜像仓库', '执行扩容'];
 const emptyTarget = { host: '', port: 22, user: '', nodeName: '' };
-export default function NodeExpansion({ token, onUpdated }) {
+export default function NodeExpansion({ token, onUpdated, modal, onModalChange, registerNavigationGuard }) {
   const logRef = useRef(null);
   const dialogRef = useRef(null);
   const [step, setStep] = useState(0);
   const [followLogs, setFollowLogs] = useState(true);
-  const [opened, setOpened] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const opened = ['add-node', 'node-history'].includes(modal?.dialog);
+  const historyOpen = modal?.dialog === 'node-history';
   const [historyBusy, setHistoryBusy] = useState(false);
   const [history, setHistory] = useState([]);
   const [info, setInfo] = useState(null);
@@ -51,6 +51,10 @@ export default function NodeExpansion({ token, onUpdated }) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
   }, [opened]);
+  useEffect(() => {
+    if (!opened) { setSshPassword(''); setSudoPassword(''); setRegistryToken(''); return; }
+    return registerNavigationGuard(() => !busy);
+  }, [opened, busy, registerNavigationGuard]);
   const clearPasswords = () => { setSshPassword(''); setSudoPassword(''); setRegistryToken(''); };
   const post = (route, body) => api(`/api/expansion/${route}`, token, undefined, { method: 'POST', body: JSON.stringify(body) });
   useEffect(() => {
@@ -201,14 +205,14 @@ export default function NodeExpansion({ token, onUpdated }) {
     Boolean(hostsDecision && hostsComparison?.targetId === targetId),
     registryReady,
   ][step];
-  const closeDialog = () => { clearPasswords(); setOpened(false); };
+  const closeDialog = () => { clearPasswords(); onModalChange(null); };
   return <section className="panel expansion-panel">
     <div className="expansion-heading">
       <div><h2>节点扩容</h2><p>将新机器加入当前集群，自动完成环境检查、安装与入群。</p></div>
-      <div className="expansion-actions"><button className="button" onClick={() => { clearPasswords(); setHistoryOpen(true); setOpened(true); }}>历史任务</button>
-      <button className="button primary" aria-haspopup="dialog" onClick={() => { setHistoryOpen(false); setOpened(true); }}>＋ 添加节点</button></div>
+      <div className="expansion-actions"><button className="button" onClick={() => { clearPasswords(); onModalChange({ dialog: 'node-history' }); }}>历史任务</button>
+      <button className="button primary" aria-haspopup="dialog" onClick={() => { onModalChange({ dialog: 'add-node' }); }}>＋ 添加节点</button></div>
     </div>
-    {opened && <dialog ref={dialogRef} className="resource-dialog expansion-dialog cluster-service" aria-labelledby="node-expansion-title" onCancel={e => { e.preventDefault(); if (!busy) closeDialog(); }} onClose={closeDialog}>
+    {opened && <dialog ref={dialogRef} className="resource-dialog expansion-dialog cluster-service" aria-labelledby="node-expansion-title" onCancel={e => { e.preventDefault(); if (!busy) closeDialog(); }}>
       <div className="dialog-head"><div><h2 id="node-expansion-title">{historyOpen ? '历史任务' : '添加节点'}</h2><p className="expansion-help">{historyOpen ? '查看历史任务的执行状态和日志。' : '按步骤配置新机器并加入当前集群。'}</p></div><button className="button" disabled={busy} onClick={closeDialog} aria-label={historyOpen ? '关闭历史任务' : '关闭添加节点'}>关闭</button></div>
       <div className={historyOpen ? undefined : "cluster-wizard"}>
         {!historyOpen && <nav className="cluster-wizard-progress" aria-label="添加节点步骤">

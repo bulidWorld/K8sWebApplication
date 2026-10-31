@@ -12,7 +12,7 @@ const stepCopy = {
   verify: { label: '验证集群', title: '验证集群状态', action: '验证集群' },
 };
 
-export default function ClusterService({ health, token, onRefresh, onSettings, setupOnly = false }) {
+export default function ClusterService({ health, token, onRefresh, onSettings, setupOnly = false, modal, onModalChange }) {
   const refresh = useRef(onRefresh);
   refresh.current = onRefresh;
   const previous = useRef(null);
@@ -32,7 +32,8 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
   const [task, setTask] = useState(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [registryDialogOpen, setRegistryDialogOpen] = useState(false);
+  const registryDialogOpen = modal?.dialog === 'registry-progress';
+  const setRegistryDialogOpen = opened => onModalChange(opened ? { dialog: 'registry-progress' } : null);
   const registryDialog = useRef(null);
   useEffect(() => {
     if (registryDialogOpen && !registryDialog.current.open) registryDialog.current.showModal();
@@ -174,10 +175,10 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
     </div>}
     {!install && error && <p className="error" role="alert">{error}</p>}
     {!install && task && <div className="cluster-section cluster-task" aria-live="polite"><h3>任务执行结果</h3><p>{task.action === 'step' ? `分步部署：${shownSteps.find(step => step.id === task.step)?.title || ''}` : task.action === 'images' ? '镜像解析' : ['pull', 'pull-all'].includes(task.action) ? '镜像拉取' : task.action === 'registry' ? '镜像仓库配置' : task.action === 'install' ? '安装' : '启动'}任务：{{ running: '执行中', succeeded: '已完成', failed: '失败', interrupted: '已中断' }[task.status]}{task.error ? `：${task.error}` : ''}</p><pre className="cluster-logs">{task.logs?.join('') || '等待执行日志…'}</pre></div>}
-    {registryDialogOpen && <dialog ref={registryDialog} className="resource-dialog registry-progress-dialog" aria-labelledby="registry-progress-title" onClose={() => setRegistryDialogOpen(false)}>
+    {registryDialogOpen && <dialog ref={registryDialog} className="resource-dialog registry-progress-dialog" aria-labelledby="registry-progress-title" onCancel={event => { event.preventDefault(); setRegistryDialogOpen(false); }}>
       <div className="dialog-head">
         <h2 id="registry-progress-title">配置自建镜像仓库</h2>
-        <button type="button" className="button" onClick={() => registryDialog.current.close()}>关闭</button>
+        <button type="button" className="button" onClick={() => setRegistryDialogOpen(false)}>关闭</button>
       </div>
       <div className="registry-progress-body">
         <p role="status" aria-live="polite">{registryStatus}</p>

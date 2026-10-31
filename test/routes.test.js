@@ -30,3 +30,40 @@ test('empty and invalid routes fall back to valid pages', () => {
     assert.deepEqual(parseRoute(`#/deployments/${module}`), { section: 'deployments', deploymentModule: '' });
   }
 });
+
+test('resource dialogs retain page, namespace and tab in shareable URLs', () => {
+  for (const modal of [
+    { dialog: 'resource', kind: 'nodes', name: 'worker-1', tab: 'labels' },
+    { dialog: 'resource', kind: 'pods', name: 'web-1', namespace: 'apps', tab: 'logs' },
+    { dialog: 'resource', kind: 'deployments', name: 'web', namespace: 'apps', tab: 'config:environment' },
+    { dialog: 'resource', kind: 'services', name: 'web', namespace: 'apps', tab: 'detail' },
+  ]) {
+    const hash = routeHash('deployments', 'environment', modal);
+    assert.deepEqual(parseRoute(hash), { section: 'deployments', deploymentModule: 'environment', modal });
+    assert.equal(routeHash('deployments', 'environment'), '#/deployments/environment');
+    assert.equal(routeHash(...['deployments', 'environment', parseRoute(hash).modal]), hash);
+  }
+});
+
+test('all workflow dialogs survive refresh without action payloads or credentials', () => {
+  for (const dialog of ['add-node', 'node-history', 'registry-progress']) {
+    const hash = routeHash('nodes', '', { dialog, password: 'secret', token: 'secret', action: 'start' });
+    assert.equal(hash, `#/nodes?dialog=${dialog}`);
+    assert.deepEqual(parseRoute(hash).modal, { dialog });
+  }
+  assert.equal(parseRoute('#/pods?dialog=add-node').modal, undefined);
+});
+
+test('invalid modal routes safely return to their page and tab scope is enforced', () => {
+  for (const query of [
+    'dialog=unknown',
+    'dialog=resource&kind=secrets&name=secret',
+    'dialog=resource&kind=nodes&name=..%2Fworker',
+    'dialog=resource&kind=pods&name=web',
+    'dialog=resource&kind=pods&name=web&namespace=..%2Fdefault',
+    'dialog=resource&kind=nodes&name=%',
+  ]) assert.deepEqual(parseRoute(`#/nodes?${query}`), { section: 'nodes', deploymentModule: '' });
+  const modal = parseRoute('#/nodes?dialog=resource&kind=nodes&name=worker-1&tab=logs&token=secret').modal;
+  assert.deepEqual(modal, { dialog: 'resource', kind: 'nodes', name: 'worker-1', tab: 'detail' });
+  assert.equal(routeHash('nodes', '', modal), '#/nodes?dialog=resource&kind=nodes&name=worker-1&tab=detail');
+});

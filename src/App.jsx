@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import api from "./lib/api.js";
 import { labels } from "./lib/resources.js";
 import { podStatus } from "./lib/formatters.js";
 import useClusterData from "./hooks/useClusterData.js";
@@ -13,7 +14,7 @@ import { deploymentModuleTitles } from './lib/navigation.js';
 import { parseRoute, routeHash } from './lib/routes.js';
 
 export default function App() {
-  const [{ section, deploymentModule }, setRoute] = useState(() => parseRoute(window.location.hash));
+  const [{ section, deploymentModule, modal }, setRoute] = useState(() => parseRoute(window.location.hash));
   const [namespace, setNamespace] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -23,28 +24,48 @@ export default function App() {
   const [tokenDraft, setTokenDraft] = useState("");
   const [settings, setSettings] = useState(false);
   const [mobile, setMobile] = useState(false);
-  const open = useCallback(
-    (kind, item, initialTab) => setSelection({ kind, item, initialTab }),
-    [],
-  );
+  const navigationGuard = useRef(null);
+  const acceptedHash = useRef(window.location.hash);
+  const acceptedIndex = useRef(window.history.state?.kubeScopeIndex ?? 0);
+  const restoringHistory = useRef(false);
+  const [selectionError, setSelectionError] = useState('');
+  const [selectionLoading, setSelectionLoading] = useState(false);
+  const registerNavigationGuard = useCallback(guard => {
+    navigationGuard.current = guard;
+    return () => { if (navigationGuard.current === guard) navigationGuard.current = null; };
+  }, []);
   const { data, errors, health, loading, updated, setRefresh, checking } = useClusterData({ namespace, token, auto });
   const setupOnly = health?.needsCluster === true;
   const resetNavigation = useCallback(() => {
     setSearch("");
     setStatusFilter("");
     setMobile(false);
-    setSelection(null);
     setSettings(false);
   }, []);
   useEffect(() => {
     const syncRoute = () => {
       const route = parseRoute(window.location.hash);
-      const canonicalHash = routeHash(route.section, route.deploymentModule);
-      if (window.location.hash !== canonicalHash) {
-        window.history.replaceState(window.history.state, '', canonicalHash);
+      const canonicalHash = routeHash(route.section, route.deploymentModule, route.modal);
+      if (restoringHistory.current) {
+        if (canonicalHash !== acceptedHash.current) return;
+        restoringHistory.current = false;
       }
+      const incomingIndex = window.history.state?.kubeScopeIndex;
+      if (canonicalHash !== acceptedHash.current && navigationGuard.current && !navigationGuard.current()) {
+        if (Number.isInteger(incomingIndex) && incomingIndex !== acceptedIndex.current) {
+          restoringHistory.current = true;
+          window.history.go(acceptedIndex.current - incomingIndex);
+        } else {
+          window.history.replaceState({ ...window.history.state, kubeScopeIndex: acceptedIndex.current }, '', acceptedHash.current);
+        }
+        return;
+      }
+      const previous = parseRoute(acceptedHash.current);
+      acceptedHash.current = canonicalHash;
+      acceptedIndex.current = Number.isInteger(incomingIndex) ? incomingIndex : acceptedIndex.current + 1;
+      window.history.replaceState({ ...window.history.state, kubeScopeIndex: acceptedIndex.current }, '', canonicalHash);
       setRoute(route);
-      resetNavigation();
+      if (previous.section !== route.section || previous.deploymentModule !== route.deploymentModule) resetNavigation();
     };
     syncRoute();
     window.addEventListener('popstate', syncRoute);
@@ -54,12 +75,40 @@ export default function App() {
       window.removeEventListener('hashchange', syncRoute);
     };
   }, [resetNavigation]);
-  function navigate(next, module = '') {
-    const hash = routeHash(next, module);
-    if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+  function commitRoute(hash) {
+    if (hash === acceptedHash.current) return true;
+    if (navigationGuard.current && !navigationGuard.current()) return false;
+    acceptedIndex.current += 1;
+    window.history.pushState({ kubeScopeIndex: acceptedIndex.current }, '', hash);
+    acceptedHash.current = hash;
     setRoute(parseRoute(hash));
-    resetNavigation();
+    return true;
   }
+  function navigate(next, module = '') {
+    if (commitRoute(routeHash(next, module))) resetNavigation();
+  }
+  function changeModal(next) { return commitRoute(routeHash(section, deploymentModule, next)); }
+  function open(kind, item, initialTab = 'detail') {
+    if (changeModal({ dialog: 'resource', kind, name: item.metadata.name, ...(item.metadata.namespace ? { namespace: item.metadata.namespace } : {}), tab: initialTab })) {
+      setSelection({ kind, item }); setSelectionError('');
+    }
+  }
+  const resourceKind = modal?.dialog === 'resource' ? modal.kind : '';
+  const resourceName = resourceKind ? modal.name : '';
+  const resourceNamespace = resourceKind ? modal.namespace || '' : '';
+  useEffect(() => {
+    setSelectionError('');
+    if (!resourceKind || !token || checking || setupOnly) { setSelection(null); setSelectionLoading(false); return; }
+    const controller = new AbortController();
+    setSelectionLoading(true);
+    const query = resourceNamespace ? `?namespace=${encodeURIComponent(resourceNamespace)}` : '';
+    api(`/api/resources/${resourceKind}/${encodeURIComponent(resourceName)}${query}`, token, controller.signal)
+      .then(item => { if (!controller.signal.aborted) setSelection({ kind: resourceKind, item }); })
+      .catch(error => { if (!controller.signal.aborted) { setSelection(null); setSelectionError(error.message); } })
+      .finally(() => { if (!controller.signal.aborted) setSelectionLoading(false); });
+    return () => controller.abort();
+  }, [resourceKind, resourceName, resourceNamespace, token, checking, setupOnly]);
+  const selectedResourceMatches = selection?.kind === resourceKind && selection.item.metadata.name === resourceName && (selection.item.metadata.namespace || '') === resourceNamespace;
   const pods = data.pods || [];
   const statuses =
     section === "nodes"
@@ -236,7 +285,7 @@ export default function App() {
               </form>
             </section>
           )}
-          {setupOnly && <ClusterService setupOnly={setupOnly} health={health} token={token} onRefresh={() => setRefresh(n => n + 1)} onSettings={() => setSettings(true)} />}
+          {setupOnly && <ClusterService modal={modal} onModalChange={changeModal} setupOnly={setupOnly} health={health} token={token} onRefresh={() => setRefresh(n => n + 1)} onSettings={() => setSettings(true)} />}
           {!loading && health?.error && !health?.needsCluster && (
             <div className="error" role="alert">
               <strong>集群连接检查失败</strong>
@@ -285,7 +334,7 @@ export default function App() {
               </span>
             </div>
           </div>}
-          {section === "nodes" && <NodeExpansion token={token} onUpdated={() => setRefresh(n => n + 1)} />}
+          {section === "nodes" && <NodeExpansion modal={modal} onModalChange={changeModal} registerNavigationGuard={registerNavigationGuard} token={token} onUpdated={() => setRefresh(n => n + 1)} />}
           {section === "overview" ? (
             <OverviewPage data={data} errors={errors} loading={loading} namespace={namespace} navigate={navigate} open={open} />
           ) : (
@@ -301,15 +350,29 @@ export default function App() {
           </>}
         </div>
       </main>
-      {!setupOnly && selection && (
+      {!setupOnly && resourceKind && !selectedResourceMatches && (
+        <ResourceLoadingDialog error={selectionError} loading={selectionLoading} close={() => changeModal(null)} />
+      )}
+      {!setupOnly && selectedResourceMatches && (
         <ResourceDialog
           key={`${selection.kind}/${selection.item.metadata.uid || selection.item.metadata.name}`}
-          selection={selection}
+          selection={{ ...selection, initialTab: modal.tab }}
+          onTabChange={tab => changeModal({ ...modal, tab })}
+          registerNavigationGuard={registerNavigationGuard}
           onUpdated={() => setRefresh(n => n + 1)}
-          close={() => setSelection(null)}
+          close={() => changeModal(null)}
           token={token}
         />
       )}
     </div>
   );
+}
+
+function ResourceLoadingDialog({ error, loading, close }) {
+  const dialog = useRef(null);
+  useEffect(() => { dialog.current.showModal(); }, []);
+  return <dialog ref={dialog} className="resource-dialog" onCancel={event => { event.preventDefault(); close(); }}>
+    <div className="dialog-head"><h2>资源详情</h2><button className="button" onClick={close}>关闭</button></div>
+    <div className="node-labels">{error ? <p className="error" role="alert">无法打开资源：{error}</p> : <p role="status">{loading ? '正在读取资源…' : '等待连接集群…'}</p>}</div>
+  </dialog>;
 }

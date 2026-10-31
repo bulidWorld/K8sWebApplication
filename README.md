@@ -216,3 +216,16 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 仅修改 `changes` 中的标签，`null` 表示删除。后端校验标签格式，并通过 JSON Patch 原子检查 UID 与 resourceVersion；并发变化返回 409，需重新加载后编辑。请求与结果写入现有 `K8S_AUDIT_FILE` 审计文件。保存时的连接失败可能发生在 API Server 已接受请求之后，应重新加载核实结果。
 
 运行身份需要集群级 Nodes 的 `get`、`list`、`patch` 权限。`deploy/node-labels-rbac.yaml` 提供可选 ClusterRole，需绑定至实际 kubeconfig 身份；应用不会自动授予权限。Kubernetes RBAC 的 `patch` 权限针对整个 Node，网页接口将变更限定为标签。
+
+## 弹窗地址
+
+弹窗状态保存在地址栏 Hash 的查询参数中，可复制链接；打开、切换资源页签和关闭弹窗都会同步地址栏，并支持浏览器前进/后退。
+
+- 节点标签：`#/nodes?dialog=resource&kind=nodes&name=worker-1&tab=labels`
+- Pod 日志：`#/pods?dialog=resource&kind=pods&name=web-1&namespace=apps&tab=logs`
+- Deployment 环境变量：`#/deployments/environment?dialog=resource&kind=deployments&name=web&namespace=apps&tab=config%3Aenvironment`
+- 添加节点：`#/nodes?dialog=add-node`
+- 历史任务：`#/nodes?dialog=node-history`
+- 镜像仓库进度（集群安装界面）：`#/overview?dialog=registry-progress`
+
+刷新或直接访问链接后，输入访问 Token 即可恢复可用的弹窗。资源弹窗会按名称和命名空间重新读取数据；资源不存在或无权访问时显示错误。URL 不保存 Token、密码、未提交草稿或执行操作，恢复流程弹窗不会自动提交安装/扩容任务。存在未保存配置时，离开弹窗会提示确认。
