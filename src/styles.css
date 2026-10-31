@@ -1871,3 +1871,7 @@ main.token-entry { margin: 0; width: 100%; min-height: 100dvh; display: grid; pl
 .node-label-row.pending-delete .config-field { opacity: .55; }
 .node-label-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
 @media (max-width: 600px) { .node-labels { padding: 16px; } .node-label-row { flex-wrap: wrap; } .node-label-row .config-field { flex-basis: 100%; } }
+.manifest-apply { padding: 24px; display: grid; gap: 14px; }
+.manifest-apply p { line-height: 1.6; margin: 0; }
+.manifest-apply textarea { width: 100%; box-sizing: border-box; padding: 12px; font-family: monospace; resize: vertical; }
+.manifest-apply pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }

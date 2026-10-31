@@ -229,3 +229,14 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 - 镜像仓库进度（集群安装界面）：`#/overview?dialog=registry-progress`
 
 刷新或直接访问链接后，输入访问 Token 即可恢复可用的弹窗。资源弹窗会按名称和命名空间重新读取数据；资源不存在或无权访问时显示错误。URL 不保存 Token、密码、未提交草稿或执行操作，恢复流程弹窗不会自动提交安装/扩容任务。存在未保存配置时，离开弹窗会提示确认。
+
+### 上传 YAML 并应用资源
+
+顶部“上传 YAML / Apply”支持上传或粘贴最大 10 MiB 的 YAML/JSON、多个 YAML 文档及 `kind: List`，每次最多 100 个资源。接口为 `POST /api/manifests/apply`，JSON 请求体包含 `manifest` 字符串和 `serverSide` 布尔值；要求访问令牌和同源 Origin。
+
+此功能直接使用当前 kubeconfig 调用 Kubernetes API，不需要 kubectl，也不写出临时 kubeconfig。通过 API discovery 解析资源路径与作用域，支持已注册的 CRD。命名空间优先使用资源声明，否则使用当前 context 的 namespace（缺省为 default）。
+
+- 勾选 `--server-side`：发送 `application/apply-patch+yaml` PATCH，使用 `fieldManager=kubescope`；不强制覆盖字段冲突。
+- 未勾选：GET 当前资源，不存在时 POST 创建；存在时根据 `kubectl.kubernetes.io/last-applied-configuration` 计算 JSON Merge Patch，记录新配置，并用 resourceVersion 防止并发覆盖。保留未管理的对象字段，删除上次声明但此次移除的字段。**列表整体替换，不等同于 kubectl 对内置资源的 Strategic Merge Patch 列表合并**；需要字段归属及 schema 驱动的列表合并时使用服务端模式。
+
+运行身份需要 discovery 读取权限及目标资源的相应 get/create/patch 权限。多个资源逐个提交，不具备事务回滚；响应 `success` 表示全部是否成功，`output` 和 `diagnostics` 展示成功和失败结果。新建 CRD 后立即提交实例可能因 API 尚未就绪失败，需要待 CRD 就绪后重试。请求日志不会记录 YAML 或 API 错误详情，以避免泄露 Secret 内容。

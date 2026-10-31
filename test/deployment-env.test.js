@@ -23,6 +23,7 @@ test('缺少显式 kubeconfig 返回 NO_CLUSTER，配置补齐后可重读，证
   try {
     await mkdir(path.join(directory, 'server'));
     await copyFile(new URL('../server/kubernetes.js', import.meta.url), path.join(directory, 'server/kubernetes.js'));
+    await copyFile(new URL('../server/apply.js', import.meta.url), path.join(directory, 'server/apply.js'));
     await writeFile(path.join(directory, 'package.json'), '{"type":"module"}');
     await symlink(path.resolve('node_modules'), path.join(directory, 'node_modules'));
     const file = path.join(directory, 'missing-config');

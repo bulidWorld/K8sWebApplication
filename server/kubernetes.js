@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 export const managedKubeconfig = fileURLToPath(new URL("../var/cluster/kubeconfig", import.meta.url));
 import https from "node:https";
 import { KubeConfig } from "@kubernetes/client-node";
+import { applyManifest } from './apply.js';
 
 const groups = {
   nodes: "/api/v1", namespaces: "/api/v1", pods: "/api/v1",
@@ -62,7 +63,7 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
     if (!kc.getCurrentCluster()) throw Object.assign(new Error("kubeconfig 未配置当前集群"), { code: "NO_CLUSTER" });
     return kc;
   }
-  async function request(apiPath, json = true, mutation) {
+  async function request(apiPath, json = true, mutation, settings = {}) {
     try {
       // Includes credential refresh in the total deadline; abort destroys the socket.
       const controller = new AbortController();
@@ -75,12 +76,12 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
           if (!["https:", "http:"].includes(target.protocol)) throw new Error("不支持的 API server 协议");
           // Log bodies are text, but API errors are serialized Kubernetes Status objects.
           const options = { headers: { Accept: json ? "application/json" : "text/plain, application/json" } };
-          if (mutation) options.headers['Content-Type'] = 'application/json-patch+json';
+          if (mutation) options.headers['Content-Type'] = settings.contentType || 'application/json-patch+json';
           await config.applyToHTTPSOptions(options);
           if (controller.signal.aborted) throw new Error("访问 Kubernetes 超时，请检查集群连接。");
           return new Promise((resolve, reject) => {
             const transport = target.protocol === "https:" ? https : http;
-            const req = transport.request(target, { ...options, method: mutation ? "PATCH" : "GET", signal: controller.signal }, (res) => {
+            const req = transport.request(target, { ...options, method: settings.method || (mutation ? "PATCH" : "GET"), signal: controller.signal }, (res) => {
               const chunks = [];
               let size = 0;
               res.on("data", (chunk) => {
@@ -110,8 +111,8 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
         return await Promise.race([operation(), aborted]);
       } finally { clearTimeout(timer); }
     } catch (error) {
-      throw Object.assign(new Error(error.message || "Kubernetes API 请求失败"), { status: mutation ? error.status || 502 : 502, code: error.code });
+      throw Object.assign(new Error(error.message || "Kubernetes API 请求失败"), { status: mutation || settings.preserveStatus ? error.status || 502 : 502, code: error.code });
     }
   }
-  return { request, reload: file => { const loaded = new KubeConfig(); loaded.loadFromFile(file); kc = loaded; }, context: () => configuration().getCurrentContext() };
+  return { request, apply: body => applyManifest((target, payload, settings) => request(target, true, payload, { ...settings, preserveStatus: true }), body, configuration().getCurrentContextObject()?.namespace || 'default'), reload: file => { const loaded = new KubeConfig(); loaded.loadFromFile(file); kc = loaded; }, context: () => configuration().getCurrentContext() };
 }

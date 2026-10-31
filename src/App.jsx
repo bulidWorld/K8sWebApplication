@@ -8,6 +8,7 @@ import OverviewPage from "./pages/OverviewPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
 
 import ClusterService from "./components/ClusterService.jsx";
+import ManifestApply from './components/ManifestApply.jsx';
 import NodeExpansion from "./components/NodeExpansion.jsx";
 import SidebarNav from './components/SidebarNav.jsx';
 import { deploymentModuleTitles } from './lib/navigation.js';
@@ -215,6 +216,7 @@ export default function App() {
             <strong>{labels[section]}{section === 'deployments' && deploymentModule ? ` / ${deploymentModuleTitles[deploymentModule]}` : ''}</strong>
           </div>
           <div className="header-right">
+            <ManifestApply token={token} onUpdated={() => setRefresh(n => n + 1)} />
             <span
               className={`connection ${health?.connected ? "connected" : ""}`}
             >

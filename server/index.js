@@ -21,6 +21,7 @@ import {
 import { buildNodeLabelsPatch } from "./node-labels.js";
 import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
+import { validateApply, maxManifestBytes } from './apply.js';
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -91,15 +92,38 @@ export function createApp({
           /^\/api\/expansion\/(settings|discover|probe|registry\/prepare|hosts\/(?:compare|apply)|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/,
         );
         const clusterRoute = url.pathname === "/api/cluster/service";
+        const applyRoute = url.pathname === "/api/manifests/apply";
         if (
           req.method !== "GET" &&
-          !(req.method === "POST" && (expansionRoute || clusterRoute)) &&
+          !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute)) &&
           !(req.method === "PATCH" && (update || nodeLabels))
         )
           return json(res, 405, { error: "不支持该接口的请求方法" });
         if (url.pathname.startsWith("/api/")) {
           if (!authorized(req, token))
             return json(res, 401, { error: "请输入有效的访问令牌" });
+          if (applyRoute) {
+            if (req.method !== 'POST') return json(res, 405, { error: '请使用 POST' });
+            if (!token) return json(res, 403, { error: '应用 YAML 要求配置访问令牌' });
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
+              return json(res, 403, { error: '应用 YAML 请求必须来自当前页面' });
+            if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json')
+              return json(res, 415, { error: '请使用 application/json' });
+            const chunks = [];
+            let size = 0;
+            for await (const chunk of req) {
+              size += chunk.length;
+              if (size > maxManifestBytes * 6 + 4096) return json(res, 413, { error: '请求过大' });
+              chunks.push(chunk);
+            }
+            let body;
+            try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+            catch { return json(res, 400, { error: '请求不是有效 JSON' }); }
+            validateApply(body);
+            const result = await kubernetes.apply(body);
+            logger.write('manifest_apply', { serverSide: body.serverSide === true, success: result.success });
+            return json(res, 200, result);
+          }
           if (clusterRoute) {
             if (!token)
               return json(res, 403, { error: "集群服务操作要求配置访问令牌" });
