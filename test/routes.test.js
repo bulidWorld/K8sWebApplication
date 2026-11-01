@@ -36,6 +36,7 @@ test('resource dialogs retain page, namespace and tab in shareable URLs', () => 
     { dialog: 'resource', kind: 'nodes', name: 'worker-1', tab: 'labels' },
     { dialog: 'resource', kind: 'persistentvolumes', name: 'pv-data', tab: 'definition' },
     { dialog: 'resource', kind: 'customresourcedefinitions', name: 'clusters.postgresql.cnpg.io', tab: 'detail' },
+    { dialog: 'resource', kind: 'customresourcedefinitions', name: 'clusters.postgresql.cnpg.io', tab: 'custom-resources' },
     { dialog: 'resource', kind: 'pods', name: 'web-1', namespace: 'apps', tab: 'logs' },
     { dialog: 'resource', kind: 'deployments', name: 'web', namespace: 'apps', tab: 'config:environment' },
     { dialog: 'resource', kind: 'services', name: 'web', namespace: 'apps', tab: 'detail' },

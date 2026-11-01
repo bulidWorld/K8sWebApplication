@@ -8,7 +8,7 @@ const eventTimestamp = (item) =>
   item.eventTime ||
   item.metadata?.creationTimestamp;
 
-export default function ResourceTable({ kind, items, search, statusFilter, open, removePod, deletingUid }) {
+export default function ResourceTable({ kind, items, search, statusFilter, open, removeResource, deletingUid, crCounts = {} }) {
   const status = (item) =>
     kind === "customresourcedefinitions" ? crdStatus(item) : kind === "nodes"
       ? nodeReady(item)
@@ -52,7 +52,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
     );
   }
   const storageHeaders = {
-    customresourcedefinitions: ["名称", "状态", "API 组", "Kind", "作用域", "提供的版本", "存储版本", "存续时间"],
+    customresourcedefinitions: ["名称", "状态", "实例数", "API 组", "Kind", "作用域", "提供的版本", "存储版本", "存续时间"],
     persistentvolumeclaims: ["名称 / 命名空间", "状态", "申请 / 分配容量", "访问模式", "存储类", "绑定卷", "存续时间"],
     persistentvolumes: ["名称", "状态", "容量", "访问模式", "回收策略", "存储类", "绑定声明", "存续时间"],
     storageclasses: ["名称", "默认", "供应器", "回收策略", "绑定模式", "允许扩容", "存续时间"],
@@ -221,6 +221,13 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                   {kind === "customresourcedefinitions" && (
                     <>
                       <td><Badge status={status(item)} /></td>
+                      <td>
+                        {crCounts[meta.name]?.error
+                          ? <span title={crCounts[meta.name].error}>读取失败</span>
+                          : crCounts[meta.name]?.count !== undefined
+                            ? <button className="text-button" title="全部命名空间的 CR 总数，点击查看实例" onClick={() => open(kind, item, 'custom-resources')}>{crCounts[meta.name].count}</button>
+                            : <span aria-label="正在统计实例数">统计中…</span>}
+                      </td>
                       <td className="mono">{item.spec?.group || "—"}</td>
                       <td className="mono">{item.spec?.names?.kind || "—"}</td>
                       <td>{item.spec?.scope === "Namespaced" ? "命名空间" : item.spec?.scope === "Cluster" ? "集群" : "—"}</td>
@@ -255,7 +262,8 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                   )}
                   <td className="align-right">
                     <div className="row-actions">
-                      {kind === 'pods' && removePod && <button className="text-button delete-button" disabled={!!deletingUid || !!meta.deletionTimestamp || !meta.uid} onClick={() => removePod(item)}>{deletingUid === meta.uid ? '正在删除…' : meta.deletionTimestamp ? '终止中' : '删除'}</button>}
+                      {kind === 'customresourcedefinitions' && <button className="text-button" onClick={() => open(kind, item, 'custom-resources')}>查看 CR</button>}
+                      {['pods', 'services'].includes(kind) && removeResource && <button className="text-button delete-button" disabled={!!deletingUid || !!meta.deletionTimestamp || !meta.uid} onClick={() => removeResource(item)}>{deletingUid === meta.uid ? '正在删除…' : meta.deletionTimestamp ? '终止中' : '删除'}</button>}
                       {kind === 'nodes' && <button className="text-button" onClick={() => open(kind, item, 'labels')}>标签（{Object.keys(meta.labels || {}).length}）</button>}
                       {kind === 'persistentvolumes' && <button className="text-button" onClick={() => open(kind, item, 'definition')}>编辑定义</button>}
                       {kind === 'deployments' && <button className="text-button" onClick={() => open(kind, item, 'config')}>配置</button>}
@@ -296,7 +304,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
         共 {filtered.length} 项资源
         {filtered.length !== items.length &&
           `，已筛选 / 总计 ${items.length} 项`}
-        <span>{kind === 'persistentvolumes' ? '支持编辑定义 · Kubernetes API' : kind === 'pods' ? '支持删除 · Kubernetes API' : kind === 'deployments' ? '支持模块配置 · Kubernetes API' : '只读访问 · Kubernetes API'}</span>
+        <span>{kind === 'persistentvolumes' ? '支持编辑定义 · Kubernetes API' : ['pods', 'services'].includes(kind) ? '支持删除 · Kubernetes API' : kind === 'deployments' ? '支持模块配置 · Kubernetes API' : '只读访问 · Kubernetes API'}</span>
       </div>
     </>
   );

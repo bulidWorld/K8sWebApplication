@@ -5,6 +5,7 @@ import download from "../lib/download.js";
 import NodeLabels from './NodeLabels.jsx';
 import PvDefinition from './PvDefinition.jsx';
 import DeploymentConfig from './DeploymentConfig.jsx';
+import CustomResources from './CustomResources.jsx';
 
 export default function ResourceDialog({ selection, close, token, onUpdated, onTabChange, registerNavigationGuard }) {
   const { kind, item: initialItem, initialTab } = selection;
@@ -92,6 +93,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
         </button>
       </div>
       <div className="tabs">
+        {kind === 'customresourcedefinitions' && <button className={tab === 'custom-resources' ? 'selected' : ''} onClick={() => switchTab('custom-resources')}>对应 CR</button>}
         <button
           className={tab === "detail" ? "selected" : ""}
           onClick={() => switchTab("detail")}
@@ -110,7 +112,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
           </button>
         )}
       </div>
-      {tab === 'definition' && kind === 'persistentvolumes' ? <PvDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
+      {tab === 'custom-resources' && kind === 'customresourcedefinitions' ? <CustomResources key={item.metadata.name} crd={item} token={token} /> : tab === 'definition' && kind === 'persistentvolumes' ? <PvDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
         <>
           <div className="detail-summary">
             <span>

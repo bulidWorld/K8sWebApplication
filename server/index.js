@@ -20,7 +20,8 @@ import {
 } from "./kubernetes.js";
 import { buildNodeLabelsPatch } from "./node-labels.js";
 import { buildPvDefinitionPatch } from './pv-definition.js';
-import { deletePod } from './pod-delete.js';
+import { deletePod, deleteService } from './pod-delete.js';
+import { listCustomResources } from './custom-resources.js';
 import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
 import { validateApply, maxManifestBytes } from './apply.js';
@@ -91,6 +92,7 @@ export function createApp({
           /^\/api\/nodes\/([^/]+)\/labels$/,
         );
         const podDelete = url.pathname.match(/^\/api\/pods\/([^/]+)\/([^/]+)$/);
+        const serviceDelete = url.pathname.match(/^\/api\/services\/([^/]+)\/([^/]+)$/);
         const pvDefinition = url.pathname.match(/^\/api\/persistentvolumes\/([^/]+)\/definition$/);
         const expansionRoute = url.pathname.match(
           /^\/api\/expansion\/(settings|discover|probe|registry\/prepare|hosts\/(?:compare|apply)|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/,
@@ -99,7 +101,7 @@ export function createApp({
         const applyRoute = url.pathname === "/api/manifests/apply";
         if (
           req.method !== "GET" &&
-          !(req.method === "DELETE" && podDelete) &&
+          !(req.method === "DELETE" && (podDelete || serviceDelete)) &&
           !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute)) &&
           !(req.method === "PATCH" && (update || nodeLabels || pvDefinition))
         )
@@ -113,12 +115,14 @@ export function createApp({
             if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
               return json(res, 403, { error: '编辑 PV 定义请求必须来自当前页面' });
           }
-          if (podDelete) {
+          if (podDelete || serviceDelete) {
+            const match = podDelete || serviceDelete;
+            const label = podDelete ? 'Pod' : 'Service';
             if (req.method !== 'DELETE') return json(res, 405, { error: '请使用 DELETE' });
-            if (!token) return json(res, 403, { error: '删除 Pod 要求配置访问令牌' });
+            if (!token) return json(res, 403, { error: `删除 ${label} 要求配置访问令牌` });
             if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
-              return json(res, 403, { error: '删除 Pod 请求必须来自当前页面' });
-            const resource = await deletePod(req, kubernetes, podDelete[1], podDelete[2]);
+              return json(res, 403, { error: `删除 ${label} 请求必须来自当前页面` });
+            const resource = await (podDelete ? deletePod : deleteService)(req, kubernetes, match[1], match[2]);
             return json(res, 200, { resource });
           }
           if (applyRoute) {
@@ -338,6 +342,8 @@ export function createApp({
             return json(res, 200, {
               logs: await kubernetes.request(logsPath(url.searchParams), false),
             });
+          const customResources = url.pathname.match(/^\/api\/custom-resources\/([^/]+)(\/count)?$/);
+          if (customResources) return json(res, 200, await listCustomResources(kubernetes, customResources[1], customResources[2] ? '' : url.searchParams.get('namespace') || '', !!customResources[2]));
           const match = url.pathname.match(
             /^\/api\/resources\/([a-z]+)(?:\/([^/]+))?$/,
           );

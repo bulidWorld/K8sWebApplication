@@ -1,7 +1,10 @@
 import { resourcePath } from './kubernetes.js';
 
-export async function deletePod(req, kubernetes, namespace, name) {
-  const target = resourcePath('pods', namespace, name);
+export const deletePod = (req, kubernetes, namespace, name) => deleteResource(req, kubernetes, 'pods', 'Pod', namespace, name);
+export const deleteService = (req, kubernetes, namespace, name) => deleteResource(req, kubernetes, 'services', 'Service', namespace, name);
+
+async function deleteResource(req, kubernetes, kind, label, namespace, name) {
+  const target = resourcePath(kind, namespace, name);
   if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json')
     throw Object.assign(new Error('请使用 application/json'), { status: 415 });
   const chunks = [];
@@ -15,7 +18,7 @@ export async function deletePod(req, kubernetes, namespace, name) {
   try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw Object.assign(new Error('请求不是有效 JSON'), { status: 400 }); }
   if (!body || typeof body.uid !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(body.uid) || Object.keys(body).some(key => key !== 'uid'))
-    throw Object.assign(new Error('删除请求必须且只能包含 Pod UID'), { status: 400 });
+    throw Object.assign(new Error(`删除请求必须且只能包含 ${label} UID`), { status: 400 });
   return kubernetes.request(target, true, {
     apiVersion: 'v1', kind: 'DeleteOptions', preconditions: { uid: body.uid },
   }, { method: 'DELETE', contentType: 'application/json', preserveStatus: true });

@@ -31,6 +31,6 @@ function parseModal(params, section) {
   const validName = value => typeof value === 'string' && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(value);
   if (!kinds.includes(kind) || !validName(name) || (scoped.has(kind) && !validName(namespace))) return null;
   const requestedTab = params.get('tab') || 'detail';
-  const tabs = ['detail', ...(kind === 'persistentvolumes' ? ['definition'] : []), ...(kind === 'nodes' ? ['labels'] : []), ...(kind === 'pods' ? ['logs'] : []), ...(kind === 'deployments' ? ['config', ...Object.keys(deploymentModuleTitles).map(module => `config:${module}`)] : [])];
+  const tabs = ['detail', ...(kind === 'customresourcedefinitions' ? ['custom-resources'] : []), ...(kind === 'persistentvolumes' ? ['definition'] : []), ...(kind === 'nodes' ? ['labels'] : []), ...(kind === 'pods' ? ['logs'] : []), ...(kind === 'deployments' ? ['config', ...Object.keys(deploymentModuleTitles).map(module => `config:${module}`)] : [])];
   return { dialog, kind, name, ...(scoped.has(kind) ? { namespace } : {}), tab: tabs.includes(requestedTab) ? requestedTab : 'detail' };
 }

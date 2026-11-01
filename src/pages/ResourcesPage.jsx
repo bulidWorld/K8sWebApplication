@@ -3,24 +3,30 @@ import api from '../lib/api.js';
 import { labels, scoped } from "../lib/resources.js";
 import ResourceTable from "../components/ResourceTable.jsx";
 import { deploymentModuleTitles } from '../lib/navigation.js';
+import useCustomResourceCounts from '../hooks/useCustomResourceCounts.js';
 
 export default function ResourcesPage({ section, deploymentModule, data, errors, loading, namespace, search, setSearch, statuses, statusFilter, setStatusFilter, setRefresh, open, token }) {
+  const crCounts = useCustomResourceCounts(data.customresourcedefinitions, section === 'customresourcedefinitions' && !loading && !errors[section], token);
   const deleting = useRef(false);
   const [deletingUid, setDeletingUid] = useState('');
   const [deleteResult, setDeleteResult] = useState(null);
-  async function removePod(item) {
+  async function removeResource(item) {
     if (deleting.current || !item.metadata.uid || item.metadata.deletionTimestamp) return;
+    const kind = section;
+    if (!['pods', 'services'].includes(kind)) return;
+    const label = kind === 'pods' ? 'Pod' : 'Service';
+    const impact = kind === 'pods' ? '删除会终止该 Pod 中的容器。由 Deployment、StatefulSet 等控制器管理的 Pod 可能会自动重建。' : '删除后，通过该 Service 访问应用的流量将中断，关联的 Pod 不会被删除。';
     const { namespace, name, uid } = item.metadata;
-    if (!window.confirm(`确定删除 Pod「${namespace}/${name}」吗？\n\n删除会终止该 Pod 中的容器。由 Deployment、StatefulSet 等控制器管理的 Pod 可能会自动重建。`)) return;
+    if (!window.confirm(`确定删除 ${label}「${namespace}/${name}」吗？\n\n${impact}`)) return;
     deleting.current = true;
     setDeletingUid(uid);
     setDeleteResult(null);
     try {
-      await api(`/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, token, undefined, { method: 'DELETE', body: JSON.stringify({ uid }) });
-      setDeleteResult({ message: `已提交删除 ${namespace}/${name}，等待 Pod 终止。` });
+      await api(`/api/${kind}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, token, undefined, { method: 'DELETE', body: JSON.stringify({ uid }) });
+      setDeleteResult({ kind, message: `已提交删除 ${label} ${namespace}/${name}。` });
       setRefresh(n => n + 1);
     } catch (error) {
-      setDeleteResult({ error: true, message: `删除 ${namespace}/${name} 失败：${error.message}` });
+      setDeleteResult({ kind, error: true, message: `删除 ${namespace}/${name} 失败：${error.message}` });
     } finally {
       deleting.current = false;
       setDeletingUid('');
@@ -29,7 +35,7 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
   const count = (kind) => data[kind] ? data[kind].length : "—";
   return (
             <section className="panel resource-panel">
-              {section === 'pods' && deleteResult && <div className={deleteResult.error ? 'error' : 'panel-note'} role={deleteResult.error ? 'alert' : 'status'}>{deleteResult.message}</div>}
+              {deleteResult?.kind === section && <div className={deleteResult.error ? 'error' : 'panel-note'} role={deleteResult.error ? 'alert' : 'status'}>{deleteResult.message}</div>}
               <div className="resource-toolbar">
                 <div className="resource-title">
                   <h2>{labels[section]}</h2>
@@ -90,8 +96,9 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
                 </div>
               ) : (
                 <ResourceTable
+                  crCounts={crCounts}
                   kind={section}
-                  removePod={removePod}
+                  removeResource={removeResource}
                   deletingUid={deletingUid}
                   items={data[section] || []}
                   search={search}
