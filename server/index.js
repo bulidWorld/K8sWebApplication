@@ -19,6 +19,7 @@ import {
   managedKubeconfig,
 } from "./kubernetes.js";
 import { buildNodeLabelsPatch } from "./node-labels.js";
+import { buildPvDefinitionPatch } from './pv-definition.js';
 import { deletePod } from './pod-delete.js';
 import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
@@ -90,6 +91,7 @@ export function createApp({
           /^\/api\/nodes\/([^/]+)\/labels$/,
         );
         const podDelete = url.pathname.match(/^\/api\/pods\/([^/]+)\/([^/]+)$/);
+        const pvDefinition = url.pathname.match(/^\/api\/persistentvolumes\/([^/]+)\/definition$/);
         const expansionRoute = url.pathname.match(
           /^\/api\/expansion\/(settings|discover|probe|registry\/prepare|hosts\/(?:compare|apply)|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/,
         );
@@ -99,12 +101,18 @@ export function createApp({
           req.method !== "GET" &&
           !(req.method === "DELETE" && podDelete) &&
           !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute)) &&
-          !(req.method === "PATCH" && (update || nodeLabels))
+          !(req.method === "PATCH" && (update || nodeLabels || pvDefinition))
         )
           return json(res, 405, { error: "不支持该接口的请求方法" });
         if (url.pathname.startsWith("/api/")) {
           if (!authorized(req, token))
             return json(res, 401, { error: "请输入有效的访问令牌" });
+          if (pvDefinition) {
+            if (req.method !== 'PATCH') return json(res, 405, { error: '请使用 PATCH' });
+            if (!token) return json(res, 403, { error: '编辑 PV 定义要求配置访问令牌' });
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
+              return json(res, 403, { error: '编辑 PV 定义请求必须来自当前页面' });
+          }
           if (podDelete) {
             if (req.method !== 'DELETE') return json(res, 405, { error: '请使用 DELETE' });
             if (!token) return json(res, 403, { error: '删除 Pod 要求配置访问令牌' });
@@ -207,7 +215,7 @@ export function createApp({
               await expansion("GET", `/${expansionRoute[1]}`),
             );
           }
-          if (req.method === "PATCH" && (update || nodeLabels)) {
+          if (req.method === "PATCH" && (update || nodeLabels || pvDefinition)) {
             if (
               !(req.headers["content-type"] || "")
                 .toLowerCase()
@@ -240,16 +248,17 @@ export function createApp({
             const [, namespace, name, module] = update || [
               null,
               undefined,
-              nodeLabels[1],
-              "labels",
+              (nodeLabels || pvDefinition)[1],
+              nodeLabels ? "labels" : "definition",
             ];
+            const resourceKind = pvDefinition ? 'persistentvolumes' : nodeLabels ? 'nodes' : 'deployments';
             const target = resourcePath(
-              nodeLabels ? "nodes" : "deployments",
+              resourceKind,
               namespace,
               name,
             );
             const current = await kubernetes.request(target);
-            const patch = nodeLabels
+            const patch = pvDefinition ? buildPvDefinitionPatch(current, body) : nodeLabels
               ? buildNodeLabelsPatch(current, body)
               : buildModulePatch(current, module, body);
             const record = {
@@ -257,7 +266,7 @@ export function createApp({
               namespace,
               name,
               module,
-              resource: nodeLabels ? "nodes" : "deployments",
+              resource: resourceKind,
               container: body.container,
               resourceVersion: body.resourceVersion,
               remoteAddress: req.socket.remoteAddress,

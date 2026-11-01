@@ -8,6 +8,7 @@
 - 查看节点、命名空间、Pods、Deployments、Services、事件及资源 JSON 详情。
 - 在“集群资源 → 自定义资源定义 CRD”查看 CustomResourceDefinition 的 API 组、Kind、作用域、提供的版本、存储版本、状态和 JSON 详情，支持搜索、状态筛选及 JSON 下载。CRD 属于集群级资源，不受命名空间筛选影响；专用只读身份需要 `deploy/rbac.yaml` 中的 CRD get/list 权限。
 - 查看存储声明（PVC）、持久卷（PV）和存储类（StorageClass）：容量、状态、访问模式、绑定关系及 JSON 详情；PVC 支持命名空间筛选。
+- PV 定义编辑：在持久卷列表点击“编辑定义”，支持 YAML/JSON 修改标签、注解及 spec，保存后刷新详情和列表；未保存离开提醒，UID/资源版本并发保护，失败保留编辑内容。
 - 命名空间筛选，按名称、命名空间、标签和节点搜索，按状态筛选。
 - Pod 删除：列表中点击“删除”后弹框确认，展示命名空间及名称，提交后刷新列表。使用 UID 前置条件防止误删同名重建 Pod，遵循默认终止宽限期；删除权限见 `deploy/pod-delete-rbac.yaml`，需绑定到 kubeconfig 使用的身份。
 - Pod 日志：切换普通/初始化/临时容器、最近 100–5000 行、上次实例、每 5 秒刷新、下载；每次日志请求最大 1 MiB。
@@ -245,3 +246,5 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 运行身份需要 discovery 读取权限及目标资源的相应 get/create/patch 权限。多个资源逐个提交，不具备事务回滚；响应 `success` 表示全部是否成功，`output` 和 `diagnostics` 展示成功和失败结果。新建 CRD 后立即提交实例可能因 API 尚未就绪失败，需要待 CRD 就绪后重试。请求日志不会记录 YAML 或 API 错误详情，以避免泄露 Secret 内容。
 
 Pod 删除接口：`DELETE /api/pods/:namespace/:name`，JSON 请求体为 `{"uid":"Pod UID"}`，要求访问令牌和同源 Origin。保留 Kubernetes 403/404/409 等错误，禁止批量删除和强制删除参数。删除行为参见 [Kubernetes Pod API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/)。
+
+PV 定义接口：`PATCH /api/persistentvolumes/:name/definition`，JSON 请求体包含 `manifest`（YAML/JSON 字符串）、`uid`、`resourceVersion`，最大 128 KiB，要求访问令牌和同源 Origin。可选权限见 `deploy/pv-editor-rbac.yaml`；更新写入现有审计日志。不可变字段等限制由 Kubernetes 校验并返回错误，不执行删除重建。参见 [Kubernetes PV API](https://kubernetes.io/docs/reference/kubernetes-api/core/persistent-volume-v1/)。

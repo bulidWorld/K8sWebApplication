@@ -1878,3 +1878,6 @@ main.token-entry { margin: 0; width: 100%; min-height: 100dvh; display: grid; pl
 
 .text-button.delete-button { color: #f28b82; }
 .text-button.delete-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pv-definition > p { font-size: 13px; line-height: 1.8; color: #9fb3cc; }
+.pv-definition textarea { width: 100%; min-height: 420px; resize: vertical; padding: 16px; background: #0a111a; color: #d5e1f1; border: 1px solid #2b3b50; border-radius: 6px; font: 13px/1.6 monospace; tab-size: 2; }

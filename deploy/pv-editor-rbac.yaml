@@ -1,0 +1,9 @@
+# Bind this optional role to the kubeconfig identity that edits PV definitions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescope-pv-editor
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "patch"]

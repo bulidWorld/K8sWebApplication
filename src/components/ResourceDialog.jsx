@@ -3,6 +3,7 @@ import { labels } from "../lib/resources.js";
 import api from "../lib/api.js";
 import download from "../lib/download.js";
 import NodeLabels from './NodeLabels.jsx';
+import PvDefinition from './PvDefinition.jsx';
 import DeploymentConfig from './DeploymentConfig.jsx';
 
 export default function ResourceDialog({ selection, close, token, onUpdated, onTabChange, registerNavigationGuard }) {
@@ -97,6 +98,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
         >
           资源详情
         </button>
+        {kind === 'persistentvolumes' && <button className={tab === 'definition' ? 'selected' : ''} onClick={() => switchTab('definition')}>编辑定义</button>}
         {kind === 'nodes' && <button className={tab === 'labels' ? 'selected' : ''} onClick={() => switchTab('labels')}>标签</button>}
         {kind === 'deployments' && <button className={tab === 'config' ? 'selected' : ''} onClick={() => switchTab('config')}>模块配置</button>}
         {kind === "pods" && (
@@ -108,7 +110,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
           </button>
         )}
       </div>
-      {tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
+      {tab === 'definition' && kind === 'persistentvolumes' ? <PvDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
         <>
           <div className="detail-summary">
             <span>
