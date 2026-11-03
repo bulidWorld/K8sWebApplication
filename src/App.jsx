@@ -9,6 +9,7 @@ import ResourcesPage from "./pages/ResourcesPage.jsx";
 
 import ClusterService from "./components/ClusterService.jsx";
 import ManifestApply from './components/ManifestApply.jsx';
+import DeploymentPlan from './components/DeploymentPlan.jsx';
 import NodeExpansion from "./components/NodeExpansion.jsx";
 import SidebarNav from './components/SidebarNav.jsx';
 import { deploymentModuleTitles } from './lib/navigation.js';
@@ -219,6 +220,7 @@ export default function App() {
           </div>
           <div className="header-right">
             <ManifestApply token={token} onUpdated={() => setRefresh(n => n + 1)} />
+            <DeploymentPlan token={token} onUpdated={() => setRefresh(n => n + 1)} />
             <span
               className={`connection ${health?.connected ? "connected" : ""}`}
             >

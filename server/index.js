@@ -26,6 +26,7 @@ import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
 import { validateApply, maxManifestBytes } from './apply.js';
 import { createEventHistory } from './event-history.js';
+import { createDeploymentPlans } from './deployment-plans.js';
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -61,6 +62,7 @@ export function createApp({
   logger = createRequestLogger({ secrets: [token] }),
   eventHistory,
 } = {}) {
+  const plans = createDeploymentPlans({ kubernetes });
   const history = eventHistory || createEventHistory({ kubernetes, logger });
   const cluster =
     clusterService ||
@@ -102,10 +104,11 @@ export function createApp({
         );
         const clusterRoute = url.pathname === "/api/cluster/service";
         const applyRoute = url.pathname === "/api/manifests/apply";
+        const plansRoute = url.pathname === '/api/deployment-plans' || /^\/api\/deployment-plans\/[a-f0-9-]{36}$/.test(url.pathname);
         if (
           req.method !== "GET" &&
           !(req.method === "DELETE" && (podDelete || serviceDelete)) &&
-          !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute)) &&
+          !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute || plansRoute)) &&
           !(req.method === "PATCH" && (update || nodeLabels || pvDefinition))
         )
           return json(res, 405, { error: "不支持该接口的请求方法" });
@@ -149,6 +152,18 @@ export function createApp({
             const result = await kubernetes.apply(body);
             logger.write('manifest_apply', { serverSide: body.serverSide === true, success: result.success });
             return json(res, 200, result);
+          }
+          if (plansRoute) {
+            if (!token) return json(res, 403, { error: '部署计划执行要求配置访问令牌' });
+            if (req.method === 'POST') {
+              if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: '部署计划请求必须来自当前页面' });
+              if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') return json(res, 415, { error: '请使用 application/json' });
+              const chunks = []; let size = 0;
+              for await (const chunk of req) { size += chunk.length; if (size > 70 * 1024 * 1024) return json(res, 413, { error: 'tar 文件不能超过 50 MiB' }); chunks.push(chunk); }
+              let body; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: '请求不是有效 JSON' }); }
+              return json(res, 202, await plans('POST', null, body));
+            }
+            if (req.method === 'GET') return json(res, 200, await plans('GET', url.pathname.endsWith('/deployment-plans') ? null : url.pathname.split('/').pop()));
           }
           if (clusterRoute) {
             if (!token)

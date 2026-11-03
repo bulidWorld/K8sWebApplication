@@ -250,6 +250,10 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 
 运行身份需要 discovery 读取权限及目标资源的相应 get/create/patch 权限。多个资源逐个提交，不具备事务回滚；响应 `success` 表示全部是否成功，`output` 和 `diagnostics` 展示成功和失败结果。新建 CRD 后立即提交实例可能因 API 尚未就绪失败，需要待 CRD 就绪后重试。请求日志不会记录 YAML 或 API 错误详情，以避免泄露 Secret 内容。
 
+### 导入部署计划 tar
+
+顶部“部署计划 / 历史”可导入最大 50 MiB 的 `.tar`。归档中必须且只能有一个 XML 计划和计划引用的 YAML 文件。XML 使用 `context/references/deployment-plan.xsd` 定义的无命名空间 `executionPlan` 格式；step 按文档顺序执行，支持 Node patch、普通 apply 和 server-side apply。计划通过 Kubernetes API 执行，不调用本机 shell。页面每 1.5 秒刷新当前步骤、进度与日志，并保留最近 500 条任务记录于 `var/deployment-plans.json`。服务重启时运行中的任务标记为中断；该执行不是事务，重试前应检查集群资源状态。运行身份需要对应资源的 get/create/patch 权限。
+
 Pod 删除接口：`DELETE /api/pods/:namespace/:name`，JSON 请求体为 `{"uid":"Pod UID"}`，要求访问令牌和同源 Origin。保留 Kubernetes 403/404/409 等错误，禁止批量删除和强制删除参数。删除行为参见 [Kubernetes Pod API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/)。
 
 PV 定义接口：`PATCH /api/persistentvolumes/:name/definition`，JSON 请求体包含 `manifest`（YAML/JSON 字符串）、`uid`、`resourceVersion`，最大 128 KiB，要求访问令牌和同源 Origin。可选权限见 `deploy/pv-editor-rbac.yaml`；更新写入现有审计日志。不可变字段等限制由 Kubernetes 校验并返回错误，不执行删除重建。参见 [Kubernetes PV API](https://kubernetes.io/docs/reference/kubernetes-api/core/persistent-volume-v1/)。
