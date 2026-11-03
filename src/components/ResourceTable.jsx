@@ -81,7 +81,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
           : kind === "services"
             ? ["名称 / 命名空间", "类型", "Cluster IP", "端口", "存续时间"]
             : kind === "events"
-              ? ["事件 / 命名空间", "类型", "资源", "消息", "次数", "最近发生"]
+              ? ["事件 / 命名空间", "类型", "资源", "消息", "次数", "发生时间"]
               : ["命名空间", "状态", "存续时间"]);
   return (
     <>
@@ -255,8 +255,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                       <td className="event-message">{item.message}</td>
                       <td>{item.count || 1}</td>
                       <td>
-                        {age(eventTimestamp(item))}
-                        前
+                        {eventTimestamp(item) ? new Date(eventTimestamp(item)).toLocaleString("zh-CN") : "—"}
                       </td>
                     </>
                   )}
@@ -267,6 +266,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                       {kind === 'nodes' && <button className="text-button" onClick={() => open(kind, item, 'labels')}>标签（{Object.keys(meta.labels || {}).length}）</button>}
                       {kind === 'persistentvolumes' && <button className="text-button" onClick={() => open(kind, item, 'definition')}>编辑定义</button>}
                       {kind === 'deployments' && <button className="text-button" onClick={() => open(kind, item, 'config')}>配置</button>}
+                      {kind === 'events' && item.involvedObject?.kind === 'Pod' && item.involvedObject?.name && item.involvedObject?.namespace && <button className="text-button" onClick={() => open('pods', { metadata: { name: item.involvedObject.name, namespace: item.involvedObject.namespace } }, 'logs')}>日志</button>}
                       {kind === "pods" && (
                         <button
                           className="text-button"

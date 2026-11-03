@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+  <xs:annotation>
+    <xs:documentation xml:lang="zh-CN">
+      Kubernetes YAML 执行计划格式（无 XML 命名空间）。
+
+      执行器应从上到下按 XML 文档顺序执行每个 step；step 的先后顺序就是依赖顺序，
+      不需要也不应另外按文件名排序。每个 step 只能选择 patch、apply、serverSideApply 三种动作之一。
+
+      file 中填写执行器能够访问的 YAML 文件路径。路径相对于执行器的工作目录解析；
+      建议使用正斜线，并在执行计划中统一使用相对仓库根目录的路径。
+
+      结构示例：
+      &lt;executionPlan&gt;
+        &lt;step name="创建命名空间"&gt;
+          &lt;serverSideApply&gt;&lt;file&gt;deploy/00-namespace.yaml&lt;/file&gt;&lt;/serverSideApply&gt;
+        &lt;/step&gt;
+        &lt;step name="给节点打标签"&gt;
+          &lt;patch node="worker-01" type="merge"&gt;&lt;file&gt;deploy/node-label-patch.yaml&lt;/file&gt;&lt;/patch&gt;
+        &lt;/step&gt;
+      &lt;/executionPlan&gt;
+
+      本 XSD 只定义计划文档结构，不会执行 kubectl，也不验证文件是否存在或 YAML 内容是否适合对应动作。
+    </xs:documentation>
+  </xs:annotation>
+
+  <xs:simpleType name="FilePathType">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">
+        YAML 文件路径。不可为空；建议填写相对于执行器工作目录的路径。
+        patch 动作要求该文件是可供 kubectl patch --patch-file 使用的 patch 内容；
+        apply 和 serverSideApply 动作要求该文件是 Kubernetes 资源清单。
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:token">
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="NodeNameType">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">
+        patch 动作的目标 Kubernetes Node 名称，对应 kubectl patch node 后面的名称参数。
+        应填写集群中实际存在的节点名，例如 worker-01；不可为空。
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:token">
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PatchType">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">
+        kubectl patch 的 --type 参数。merge 表示 JSON Merge Patch，strategic 表示
+        Strategic Merge Patch，json 表示 JSON Patch。应根据 patch 文件的内容选择类型。
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="merge"/>
+      <xs:enumeration value="strategic"/>
+      <xs:enumeration value="json"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="executionPlan">
+    <xs:annotation>
+      <xs:documentation xml:lang="zh-CN">
+        执行计划根元素。至少包含一个 step。step 按本文档中的出现顺序执行。
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="step" minOccurs="1" maxOccurs="unbounded">
+          <xs:annotation>
+            <xs:documentation xml:lang="zh-CN">
+              单个执行步骤。可以重复出现；步骤顺序由 XML 中的排列位置决定。
+              每个步骤必须且只能包含一个动作元素：patch、apply 或 serverSideApply。
+            </xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:choice>
+              <xs:element name="patch">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">
+                    对一个已有 Kubernetes 对象执行 kubectl patch。必填属性 node 指定目标节点，
+                    type 指定 --type；内部 file 指向 patch 内容文件。语义类似：
+                    kubectl patch node NODE --type=TYPE --patch-file FILE。
+                    对不同目标执行同一份 patch 时，分别写多个 step。
+                  </xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="file" type="FilePathType">
+                      <xs:annotation>
+                        <xs:documentation xml:lang="zh-CN">
+                          patch 文件路径。文件应包含 Kubernetes patch 对象内容，例如节点标签 patch：
+                          metadata.labels.workload: postgres。此处不是完整资源清单时也可以使用。
+                        </xs:documentation>
+                      </xs:annotation>
+                    </xs:element>
+                  </xs:sequence>
+                  <xs:attribute name="node" type="NodeNameType" use="required">
+                    <xs:annotation>
+                      <xs:documentation xml:lang="zh-CN">必填。kubectl patch 的目标节点名称。</xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                  <xs:attribute name="type" type="PatchType" use="required">
+                    <xs:annotation>
+                      <xs:documentation xml:lang="zh-CN">必填。kubectl patch 的 --type 值。</xs:documentation>
+                    </xs:annotation>
+                  </xs:attribute>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="apply">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">
+                    使用普通客户端 apply 执行资源清单，语义为 kubectl apply -f FILE。
+                    该方式不是 server-side apply。
+                  </xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="file" type="FilePathType">
+                      <xs:annotation>
+                        <xs:documentation xml:lang="zh-CN">待执行的 Kubernetes YAML 资源清单路径。</xs:documentation>
+                      </xs:annotation>
+                    </xs:element>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="serverSideApply">
+                <xs:annotation>
+                  <xs:documentation xml:lang="zh-CN">
+                    使用 server-side apply 执行资源清单，语义为 kubectl apply --server-side -f FILE。
+                    Kubernetes API Server 会跟踪字段管理；不要把 patch 文件放在此动作下。
+                  </xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="file" type="FilePathType">
+                      <xs:annotation>
+                        <xs:documentation xml:lang="zh-CN">待 server-side apply 的 Kubernetes YAML 资源清单路径。</xs:documentation>
+                      </xs:annotation>
+                    </xs:element>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+            </xs:choice>
+            <xs:attribute name="name" type="xs:token" use="optional">
+              <xs:annotation>
+                <xs:documentation xml:lang="zh-CN">
+                  可选的人类可读步骤名称，用于日志和计划说明，不改变执行行为；不可包含空白首尾字符。
+                </xs:documentation>
+              </xs:annotation>
+            </xs:attribute>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

@@ -13,7 +13,10 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
   const tab = initialTab?.startsWith('config:') ? 'config' : initialTab || 'detail';
   const [configDirty, setConfigDirty] = useState(false);
   useEffect(() => registerNavigationGuard(() => !configDirty || window.confirm('有未保存的配置修改，确定放弃并离开吗？')), [configDirty, registerNavigationGuard]);
-  useEffect(() => { setItem(initialItem); }, [initialItem]);
+  useEffect(() => {
+    setItem(initialItem);
+    if (kind === 'pods') setContainer(initialItem.spec?.containers?.[0]?.name || '');
+  }, [initialItem, kind]);
   useEffect(() => {
     if (!configDirty) return;
     const warn = event => { event.preventDefault(); event.returnValue = ''; };
