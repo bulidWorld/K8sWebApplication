@@ -25,6 +25,7 @@ import { listCustomResources } from './custom-resources.js';
 import { buildModulePatch } from "./deployment-config.js";
 import { expansionClient } from "./expansion.js";
 import { validateApply, maxManifestBytes } from './apply.js';
+import { createEventHistory } from './event-history.js';
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -58,7 +59,9 @@ export function createApp({
   expansion = expansionClient(),
   clusterService,
   logger = createRequestLogger({ secrets: [token] }),
+  eventHistory,
 } = {}) {
+  const history = eventHistory || createEventHistory({ kubernetes, logger });
   const cluster =
     clusterService ||
     createClusterService({
@@ -74,7 +77,7 @@ export function createApp({
       },
     });
   const staticRoot = path.resolve(staticDirectory);
-  return http.createServer((req, res) =>
+  const server = http.createServer((req, res) =>
     logger.request(req, res, async () => {
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("X-Frame-Options", "DENY");
@@ -342,6 +345,8 @@ export function createApp({
             return json(res, 200, {
               logs: await kubernetes.request(logsPath(url.searchParams), false),
             });
+          if (url.pathname === '/api/events/history')
+            return json(res, 200, { items: history.list() });
           const customResources = url.pathname.match(/^\/api\/custom-resources\/([^/]+)(\/count)?$/);
           if (customResources) return json(res, 200, await listCustomResources(kubernetes, customResources[1], customResources[2] ? '' : url.searchParams.get('namespace') || '', !!customResources[2]));
           const match = url.pathname.match(
@@ -395,6 +400,8 @@ export function createApp({
       }
     }),
   );
+  server.once('listening', () => history.start());
+  return server;
 }
 if (
   process.argv[1] &&

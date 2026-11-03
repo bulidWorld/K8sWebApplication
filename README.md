@@ -69,6 +69,7 @@ sudo env HOST=0.0.0.0 PORT=3000 K8S_WEB_TOKEN='replace-with-a-long-random-token'
 | `KUBECONFIG` | `~/.kube/config` 或集群内 ServiceAccount | 由官方客户端读取的集群配置 |
 | `K8S_WEB_TOKEN` | 空               | 配置后所有 API 均需要 Bearer 令牌 |
 | `K8S_AUDIT_FILE` | 项目下 `var/deployment-audit.jsonl` | Deployment 模块操作日志，包含时间、目标、模块、容器、来源地址、版本及结果，不包含变量值或令牌；运行用户需有目录写权限 |
+| `K8S_EVENT_HISTORY_FILE` | 项目下 `var/events/history.jsonl` | 历史 Kubernetes Events 增量记录；服务启动后立即采集，之后每 3 分钟采集一次，需运行用户可写 |
 | `K8S_PUBLIC_ORIGIN` | 由后端协议和 Host 推导 | HTTPS 反向代理部署时设置浏览器访问的来源，如 `https://kubescope.example.com`，不含路径及末尾斜线，用于写入来源检查 |
 
 每次 API 请求具有 15 秒总超时（含认证），资源 JSON 响应上限 10 MiB。大规模集群可切换到具体命名空间缩小工作负载查询范围。概览独立读取各资源，单项无权限不会阻止其他资源展示。节点、命名空间、PV 和 StorageClass 属于集群级资源，不随命名空间选择变化。
@@ -94,6 +95,7 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 | `/api/health`                                                               | 当前 context 与 API server 连通性检查                                                              |
 | `/api/resources/:kind?namespace=default`                                    | kind 为 nodes/namespaces/pods/deployments/services/events/persistentvolumeclaims/persistentvolumes/storageclasses/customresourcedefinitions；省略 namespace 时工作负载跨命名空间查询 |
 | `/api/resources/:kind/:name?namespace=default`                              | 单资源 JSON；命名空间资源应指定 namespace                                                          |
+| `/api/events/history`                                                        | 返回本应用按 3 分钟周期增量保存的历史 Kubernetes Events |
 | `/api/logs?namespace=default&pod=web&container=app&tail=200&previous=false` | 带时间戳的日志快照                                                                                 |
 
 日志自动刷新是定时重新获取快照，不是持续日志流连接。接口支持下述 Deployment 模块变更，不支持在浏览器切换 kubeconfig/context。
