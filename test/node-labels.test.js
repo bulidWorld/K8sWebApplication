@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildNodeLabelsPatch } from '../server/node-labels.js';
+import { buildNodeLabelsPatch } from '../server/nodes/node-labels.js';
 import { createApp } from '../server/index.js';
 const current = { metadata: { name: 'worker-1', uid: 'uid-1', resourceVersion: '10', labels: { 'example.com/zone': 'a', role: '', keep: 'yes' } } };
 const body = changes => ({ uid: 'uid-1', resourceVersion: '10', changes });

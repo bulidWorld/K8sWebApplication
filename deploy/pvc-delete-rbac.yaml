@@ -1,0 +1,9 @@
+# Bind this optional role to the kubeconfig identity allowed to delete PVCs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescope-pvc-deleter
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["delete"]

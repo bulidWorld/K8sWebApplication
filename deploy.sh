@@ -24,7 +24,7 @@ for value in "$APP_DIR" "$NODE_BIN"; do
     exit 1
   fi
 done
-for file in server/index.js server/expansion.js server/expansion-executor.js server/kubernetes.js server/deployment-env.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
+for file in server/index.js server/expansion/expansion.js server/expansion/expansion-executor.js server/core/kubernetes.js server/resources/deployment-env.js package.json node_modules/@kubernetes/client-node/package.json dist/index.html deploy/kubescope.service; do
   if [[ ! -r "$file" ]]; then
     echo "缺少或无法读取 $file，请使用完整部署包。" >&2
     exit 1
@@ -36,7 +36,7 @@ chmod 600 "$APP_DIR/.env"
 
 # Parse .env with Node.js, never execute it as shell code.
 "$NODE_BIN" --env-file=.env --input-type=module -e '
-import { validateDeploymentEnvironment } from "./server/deployment-env.js";
+import { validateDeploymentEnvironment } from "./server/resources/deployment-env.js";
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw Error("需要 Node.js >= 22.12");
 const { missing } = validateDeploymentEnvironment();

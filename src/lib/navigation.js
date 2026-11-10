@@ -12,6 +12,7 @@ export const navigation = [
     { id: 'nodes', label: '节点', section: 'nodes' },
     { id: 'namespaces', label: '命名空间', section: 'namespaces' },
     { id: 'customresourcedefinitions', label: '自定义资源定义 CRD', section: 'customresourcedefinitions' },
+    { id: 'customresources', label: 'CR 实例', section: 'customresources' },
   ] },
   { id: 'applications', label: '应用管理', icon: '▦', children: [
     { id: 'deployment-group', label: 'Deployments', children: [
@@ -19,6 +20,7 @@ export const navigation = [
       ...Object.entries(deploymentModuleTitles).map(([module, label]) => ({ id: `deployment-${module}`, label, section: 'deployments', module })),
     ] },
     { id: 'pods', label: 'Pods', section: 'pods' },
+    { id: 'configmaps', label: 'ConfigMap', section: 'configmaps' },
   ] },
   { id: 'network-storage', label: '网络与存储', icon: '▧', children: [
     { id: 'network', label: '网络访问', children: [
@@ -30,8 +32,13 @@ export const navigation = [
       { id: 'storageclasses', label: '存储类', section: 'storageclasses' },
     ] },
   ] },
+  { id: 'maintenance', label: '系统维护', icon: '⚙', children: [
+    { id: 'registries', label: '镜像仓库维护', section: 'registries' },
+    { id: 'nodeconfig', label: '节点配置', section: 'nodeconfig' },
+  ] },
   { id: 'diagnostics', label: '运维诊断', icon: '◷', children: [
     { id: 'events', label: '集群事件', section: 'events' },
+    { id: 'operationlogs', label: '操作日志', section: 'operationlogs' },
   ] },
 ];
 

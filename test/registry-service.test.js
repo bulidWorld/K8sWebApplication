@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import http from 'node:http';
-import { configureRegistryToml, registryHosts, configureRegistry, requestRegistryBundle } from '../server/registry-service.js';
+import { configureRegistryToml, registryHosts, configureRegistry, requestRegistryBundle } from '../server/registry/registry-service.js';
 
 for (const version of [2, 3]) test(`containerd v${version} 补齐缺失的 registry 表和 config_path，保留其他配置`, () => {
   const plugin = version === 2 ? 'io.containerd.grpc.v1.cri' : 'io.containerd.cri.v1.images';

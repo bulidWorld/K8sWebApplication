@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
-import { createExecutor, validateConfig } from '../server/expansion-executor.js';
+import { createExecutor, validateConfig } from '../server/expansion/expansion-executor.js';
 import { createApp } from '../server/index.js';
 const config = stateDirectory => ({ stateDirectory, socketPath: '/tmp/test-expansion.sock', kubeconfig: '/etc/kubernetes/admin.conf', knownHosts: '/etc/known_hosts', apiServer: 'https://192.168.1.10:6443', kubernetesVersion: '1.34.1', containerdPackageVersion: '1.7.28-0ubuntu1', targets: [{ id: 'worker-02', host: '192.168.1.12', nodeName: 'worker-02', user: 'root', port: 22, identityFile: '/etc/key' }] });
 async function waitFor(handle, id, status) {
@@ -129,7 +129,7 @@ test('重启中断旧预检并保留历史；已注册机器禁止再次初始�
 });
 
 test('sudo 密码只走 SSH 标准输入；特殊字符不执行，错误密码停止脚本', async () => {
-  const { sudoInput } = await import('../server/expansion-executor.js');
+  const { sudoInput } = await import('../server/expansion/expansion-executor.js');
   const { writeFile, chmod } = await import('node:fs/promises');
   const { spawn } = await import('node:child_process');
   const dir = await mkdtemp(path.join(tmpdir(), 'sudo-input-'));
@@ -170,7 +170,7 @@ exec "$@"
 });
 
 test('内置扩容引擎要求 root，只初始化一次，不需要独立服务', async () => {
-  const { expansionClient } = await import('../server/expansion.js');
+  const { expansionClient } = await import('../server/expansion/expansion.js');
   let created = 0;
   const denied = expansionClient('/config.json', { uid: () => 1000 });
   await assert.rejects(denied('GET', '/targets'), { status: 503 });

@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { KubeConfig } from '@kubernetes/client-node';
-import { createKubernetes } from './kubernetes.js';
+import { createKubernetes } from '../core/kubernetes.js';
 import { createExecutor, validateConfig, command, publicTarget, targetRevision } from './expansion-executor.js';
 import { probeHost } from './remote-ssh.js';
-const defaultPath = fileURLToPath(new URL('../var/expansion/config.json', import.meta.url));
+const defaultPath = fileURLToPath(new URL('../../var/expansion/config.json', import.meta.url));
 const error = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const settingsOf = c => ({ kubeconfig: c.kubeconfig, apiServer: c.apiServer, kubernetesVersion: c.kubernetesVersion, containerdPackageVersion: c.containerdPackageVersion });
 export async function discoverConfiguration() {
@@ -92,6 +92,11 @@ export function expansionClient(configPath = defaultPath, {
     if (!config) {
       if (method === 'GET' && route === '/targets') return { enabled: false, needsSetup: true, targets: [], tasks: [] };
       error('请先在页面初始化集群扩容配置', 409);
+    }
+    if (method === 'RESOLVE_TARGET') {
+      const target = config.targets.find(item => item.nodeName === body.nodeName);
+      if (!target || targetRevision(target) !== body.revision) error('节点扩容目标已变化，请重新加载', 409);
+      return structuredClone(target);
     }
     if (method === 'POST' && route === '/probe') {
       await ensureIdle();

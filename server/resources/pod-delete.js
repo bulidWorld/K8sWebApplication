@@ -1,7 +1,8 @@
-import { resourcePath } from './kubernetes.js';
+import { resourcePath } from '../core/kubernetes.js';
 
 export const deletePod = (req, kubernetes, namespace, name) => deleteResource(req, kubernetes, 'pods', 'Pod', namespace, name);
 export const deleteService = (req, kubernetes, namespace, name) => deleteResource(req, kubernetes, 'services', 'Service', namespace, name);
+export const deletePersistentVolumeClaim = (req, kubernetes, namespace, name) => deleteResource(req, kubernetes, 'persistentvolumeclaims', 'PVC', namespace, name);
 
 async function deleteResource(req, kubernetes, kind, label, namespace, name) {
   const target = resourcePath(kind, namespace, name);

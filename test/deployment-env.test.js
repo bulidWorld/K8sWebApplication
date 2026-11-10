@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { validateDeploymentEnvironment } from '../server/deployment-env.js';
+import { validateDeploymentEnvironment } from '../server/resources/deployment-env.js';
 
 const base = { PORT: '3000', K8S_WEB_TOKEN: 'test-token' };
 test('首次部署允许无 kubeconfig 或路径尚不存在，仍校验端口、令牌、绝对路径和读取权限', () => {
@@ -21,13 +21,13 @@ test('首次部署允许无 kubeconfig 或路径尚不存在，仍校验端口�
 test('缺少显式 kubeconfig 返回 NO_CLUSTER，配置补齐后可重读，证书缺失不误判为缺少集群', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'kubeconfig-startup-'));
   try {
-    await mkdir(path.join(directory, 'server'));
-    await copyFile(new URL('../server/kubernetes.js', import.meta.url), path.join(directory, 'server/kubernetes.js'));
-    await copyFile(new URL('../server/apply.js', import.meta.url), path.join(directory, 'server/apply.js'));
+    await mkdir(path.join(directory, 'server/core'), { recursive: true });
+    await copyFile(new URL('../server/core/kubernetes.js', import.meta.url), path.join(directory, 'server/core/kubernetes.js'));
+    await copyFile(new URL('../server/core/apply.js', import.meta.url), path.join(directory, 'server/core/apply.js'));
     await writeFile(path.join(directory, 'package.json'), '{"type":"module"}');
     await symlink(path.resolve('node_modules'), path.join(directory, 'node_modules'));
     const file = path.join(directory, 'missing-config');
-    const moduleUrl = pathToFileURL(path.join(directory, 'server/kubernetes.js')).href;
+    const moduleUrl = pathToFileURL(path.join(directory, 'server/core/kubernetes.js')).href;
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import assert from 'node:assert/strict';
       import fs from 'node:fs';
@@ -51,12 +51,12 @@ test('缺少显式 kubeconfig 返回 NO_CLUSTER，配置补齐后可重读，证
 test('deploy.sh 在 kubeconfig 尚不存在时通过环境校验进入服务安装，不触碰系统路径', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'deploy-no-cluster-'));
   try {
-    for (const file of ['server/index.js', 'server/expansion.js', 'server/expansion-executor.js', 'server/kubernetes.js', 'server/deployment-env.js', 'package.json', 'node_modules/@kubernetes/client-node/package.json', 'dist/index.html', 'deploy/kubescope.service']) {
+    for (const file of ['server/index.js', 'server/expansion/expansion.js', 'server/expansion/expansion-executor.js', 'server/core/kubernetes.js', 'server/resources/deployment-env.js', 'package.json', 'node_modules/@kubernetes/client-node/package.json', 'dist/index.html', 'deploy/kubescope.service']) {
       await mkdir(path.dirname(path.join(directory, file)), { recursive: true });
       await writeFile(path.join(directory, file), '');
     }
     await writeFile(path.join(directory, 'package.json'), '{"type":"module"}');
-    await copyFile(new URL('../server/deployment-env.js', import.meta.url), path.join(directory, 'server/deployment-env.js'));
+    await copyFile(new URL('../server/resources/deployment-env.js', import.meta.url), path.join(directory, 'server/resources/deployment-env.js'));
     await copyFile(new URL('../deploy.sh', import.meta.url), path.join(directory, 'deploy.sh'));
     await writeFile(path.join(directory, '.env'), 'PORT=3000\nK8S_WEB_TOKEN=test-token\n');
     const result = spawnSync('/bin/bash', ['-c', `

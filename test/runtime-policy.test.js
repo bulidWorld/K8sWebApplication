@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { validateConfig } from '../server/expansion-executor.js';
+import { validateConfig } from '../server/expansion/expansion-executor.js';
 const policy = fileURLToPath(new URL('../server/provision/runtime-policy.sh', import.meta.url));
 const invoke = (name, ...args) => spawnSync('/bin/bash', ['-c', 'source "$1"; shift; "$@"', '_', policy, name, ...args], { encoding: 'utf8' });
 

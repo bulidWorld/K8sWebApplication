@@ -8,7 +8,13 @@ const eventTimestamp = (item) =>
   item.eventTime ||
   item.metadata?.creationTimestamp;
 
-export default function ResourceTable({ kind, items, search, statusFilter, open, removeResource, deletingUid, crCounts = {} }) {
+const serviceDomain = (item) => item.spec?.type === 'ExternalName'
+  ? item.spec.externalName || '—'
+  : item.metadata?.namespace
+    ? `${item.metadata.name}.${item.metadata.namespace}.svc.cluster.local`
+    : '—';
+
+export default function ResourceTable({ kind, items, search, statusFilter, typeFilter = '', open, removeResource, deletingUid, crCounts = {} }) {
   const status = (item) =>
     kind === "customresourcedefinitions" ? crdStatus(item) : kind === "nodes"
       ? nodeReady(item)
@@ -32,6 +38,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
         item.metadata.name,
         item.metadata.namespace,
         item.metadata.labels,
+        ...(kind === 'services' ? [serviceDomain(item)] : []),
         item.spec?.nodeName,
         item.status?.addresses,
         item.spec?.storageClassName,
@@ -42,8 +49,12 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
       ])
         .toLowerCase()
         .includes(search.toLowerCase()) &&
-      (!statusFilter || status(item) === statusFilter),
+      (!statusFilter || status(item) === statusFilter) &&
+      (kind !== 'services' || !typeFilter || (item.spec?.type || 'ClusterIP') === typeFilter),
   );
+  if (kind === "pods") {
+    filtered.sort((a, b) => Number(status(a) === "Running") - Number(status(b) === "Running"));
+  }
   if (kind === "events") {
     filtered.sort(
       (a, b) =>
@@ -53,6 +64,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
   }
   const storageHeaders = {
     customresourcedefinitions: ["名称", "状态", "实例数", "API 组", "Kind", "作用域", "提供的版本", "存储版本", "存续时间"],
+    configmaps: ["名称 / 命名空间", "配置项", "存续时间"],
     persistentvolumeclaims: ["名称 / 命名空间", "状态", "申请 / 分配容量", "访问模式", "存储类", "绑定卷", "存续时间"],
     persistentvolumes: ["名称", "状态", "容量", "访问模式", "回收策略", "存储类", "绑定声明", "存续时间"],
     storageclasses: ["名称", "默认", "供应器", "回收策略", "绑定模式", "允许扩容", "存续时间"],
@@ -79,7 +91,7 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
               "存续时间",
             ]
           : kind === "services"
-            ? ["名称 / 命名空间", "类型", "Cluster IP", "端口", "存续时间"]
+            ? ["名称 / 命名空间", "服务域名", "类型", "Cluster IP", "端口", "存续时间"]
             : kind === "events"
               ? ["事件 / 命名空间", "类型", "资源", "消息", "次数", "发生时间"]
               : ["命名空间", "状态", "存续时间"]);
@@ -176,10 +188,12 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                       <td>{age(meta.creationTimestamp)}</td>
                     </>
                   )}
+                  {kind === "configmaps" && <><td>{Object.keys(item.data || {}).length}</td><td>{age(meta.creationTimestamp)}</td></>}
                   {kind === "services" && (
                     <>
+                      <td className="mono">{serviceDomain(item)}</td>
                       <td>
-                        <span className="tag">{item.spec?.type}</span>
+                        <span className="tag">{item.spec?.type || 'ClusterIP'}</span>
                       </td>
                       <td className="mono">{item.spec?.clusterIP || "—"}</td>
                       <td className="mono">
@@ -262,8 +276,11 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                   <td className="align-right">
                     <div className="row-actions">
                       {kind === 'customresourcedefinitions' && <button className="text-button" onClick={() => open(kind, item, 'custom-resources')}>查看 CR</button>}
-                      {['pods', 'services'].includes(kind) && removeResource && <button className="text-button delete-button" disabled={!!deletingUid || !!meta.deletionTimestamp || !meta.uid} onClick={() => removeResource(item)}>{deletingUid === meta.uid ? '正在删除…' : meta.deletionTimestamp ? '终止中' : '删除'}</button>}
-                      {kind === 'nodes' && <button className="text-button" onClick={() => open(kind, item, 'labels')}>标签（{Object.keys(meta.labels || {}).length}）</button>}
+                      {['pods', 'services', 'persistentvolumeclaims'].includes(kind) && removeResource && <button className="text-button delete-button" disabled={!!deletingUid || !!meta.deletionTimestamp || !meta.uid} onClick={() => removeResource(item)}>{deletingUid === meta.uid ? '正在删除…' : meta.deletionTimestamp ? '终止中' : '删除'}</button>}
+                      {kind === 'nodes' && <>
+                        <button className="icon-button" title="域名映射" aria-label="域名映射" onClick={() => open(kind, item, 'hosts')}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></button>
+                        <button className="icon-button" title={`标签（${Object.keys(meta.labels || {}).length}）`} aria-label="标签" onClick={() => open(kind, item, 'labels')}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 3h8l10 10-8 8L3 11Z"/><circle cx="7.5" cy="7.5" r="1"/></svg></button>
+                      </>}
                       {kind === 'persistentvolumes' && <button className="text-button" onClick={() => open(kind, item, 'definition')}>编辑定义</button>}
                       {kind === 'deployments' && <button className="text-button" onClick={() => open(kind, item, 'config')}>配置</button>}
                       {kind === 'events' && item.involvedObject?.kind === 'Pod' && item.involvedObject?.name && item.involvedObject?.namespace && <button className="text-button" onClick={() => open('pods', { metadata: { name: item.involvedObject.name, namespace: item.involvedObject.namespace } }, 'logs')}>日志</button>}
@@ -276,10 +293,11 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
                         </button>
                       )}
                       <button
-                        className="text-button"
+                        className={kind === 'nodes' ? "icon-button" : "text-button"}
+                        title="详情" aria-label="详情"
                         onClick={() => open(kind, item)}
                       >
-                        详情 ↗
+                        {kind === 'nodes' ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></svg> : '详情 ↗'}
                       </button>
                     </div>
                   </td>
@@ -292,10 +310,10 @@ export default function ResourceTable({ kind, items, search, statusFilter, open,
       {!filtered.length && (
         <div className="empty">
           <span>⌕</span>
-          <h3>{search || statusFilter ? "没有匹配的资源" : "暂无资源"}</h3>
+          <h3>{search || statusFilter || typeFilter ? "没有匹配的资源" : "暂无资源"}</h3>
           <p>
-            {search || statusFilter
-              ? "调整搜索关键词或状态筛选后重试。"
+            {search || statusFilter || typeFilter
+              ? kind === 'services' ? "调整搜索关键词或类型筛选后重试。" : "调整搜索关键词或状态筛选后重试。"
               : "当前范围内没有此类资源。"}
           </p>
         </div>

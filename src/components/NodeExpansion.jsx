@@ -177,6 +177,7 @@ export default function NodeExpansion({ token, onUpdated, modal, onModalChange, 
       if (!hostsComparison || hostsComparison.targetId !== targetId || !hostsDecision) throw new Error('请先对比 hosts 并确认处理方式');
       if (registryEnabled && !preparedRegistry) throw new Error('请返回镜像仓库步骤拉取证书');
       try {
+        await api('/api/registry-node-access/from-expansion', token, undefined, { method: 'POST', body: JSON.stringify({ nodeName: selected.nodeName, revision: selected.revision, ...credentials() }) });
         setTask(await post('tasks', { targetId, start: true, ...credentials(), ...(registryEnabled ? { registryTaskId: preparedRegistry?.id } : {}) }));
       } finally { clearPasswords(); }
     });

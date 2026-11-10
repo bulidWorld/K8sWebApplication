@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { KubeConfig } from '@kubernetes/client-node';
-import { createKubernetes } from '../server/kubernetes.js';
-import { applyManifest, validateApply, clientMergePatch } from '../server/apply.js';
+import { createKubernetes } from '../server/core/kubernetes.js';
+import { applyManifest, validateApply, clientMergePatch } from '../server/core/apply.js';
 import { createApp } from '../server/index.js';
 
 const manifest = 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: demo\n';
@@ -90,8 +90,8 @@ test('multi-document apply reports partial failure and handles cluster-scoped CR
   assert.ok(calls.includes('/apis/example.org/v1/widgets/sample?fieldManager=kubescope&fieldValidation=Strict'));
 });
 
-test('invalid YAML or resource identity makes no API calls; read forbidden never triggers create', async () => {
-  for (const manifest of ['# empty', 'a: [', 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: ../bad', 'kind: List\napiVersion: v1\nitems: [null]']) {
+test('invalid YAML or missing resource identity makes no API calls; read forbidden never triggers create', async () => {
+  for (const manifest of ['# empty', 'a: [', 'apiVersion: v1\nkind: Pod\nmetadata: {}', 'kind: List\napiVersion: v1\nitems: [null]']) {
     await assert.rejects(applyManifest(() => assert.fail('must not call API'), { manifest }), { status: 400 });
   }
   let calls = 0;
@@ -99,6 +99,19 @@ test('invalid YAML or resource identity makes no API calls; read forbidden never
   assert.equal(calls, 2);
   assert.equal(result.success, false);
   assert.match(result.diagnostics, /Forbidden/);
+});
+
+test('resource name format is delegated to Kubernetes API', async () => {
+  const calls = [];
+  const result = await applyManifest(async (target, payload) => {
+    calls.push(target);
+    if (target === '/apis/rbac.authorization.k8s.io/v1') return { resources: [{ kind: 'ClusterRole', name: 'clusterroles', namespaced: false }] };
+    if (payload?.kind === 'ClusterRole') throw Object.assign(new Error('Invalid value: "../bad"'), { status: 422 });
+    return {};
+  }, { manifest: 'apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  name: ../bad', serverSide: true });
+  assert.equal(result.success, false);
+  assert.match(result.diagnostics, /Invalid value/);
+  assert.ok(calls.includes('/apis/rbac.authorization.k8s.io/v1/clusterroles/..%2Fbad?fieldManager=kubescope&fieldValidation=Strict'));
 });
 
 test('Kubernetes HTTP transport sends apply media type, credentials and handles 404 create', async () => {

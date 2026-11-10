@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/index.js';
-import { resourcePath } from '../server/kubernetes.js';
+import { resourcePath } from '../server/core/kubernetes.js';
 import { crdStatus } from '../src/lib/formatters.js';
 import { scoped } from '../src/lib/resources.js';
 
@@ -92,7 +92,7 @@ test('CR endpoint resolves served versions and scope from the CRD, enforces read
 });
 
 test('CR counts include all namespaces and pages; empty and failed lists remain distinct', async () => {
-  const { listCustomResources } = await import('../server/custom-resources.js');
+  const { listCustomResources } = await import('../server/resources/custom-resources.js');
   const calls = [];
   const crd = { spec: { group: 'example.io', names: { plural: 'widgets' }, scope: 'Namespaced', versions: [{ name: 'v1', served: true, storage: true }] } };
   let empty = false;

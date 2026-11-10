@@ -1,4 +1,4 @@
-import { validateRegistry, registryEnvironment } from './registry-config.js';
+import { validateRegistry, registryEnvironment } from '../registry/registry-config.js';
 // Task engine embedded in the root web process. Configuration and keys are root-owned.
 import {
   readFile,
@@ -127,7 +127,7 @@ export function command(file, args, input = "", timeout = 120000, { onOutput } =
 }
 export async function createExecutor(config, run = command, connect = remoteSsh) {
   const c = validateConfig(config);
-  const runtimePolicy = await readFile(new URL("./provision/runtime-policy.sh", import.meta.url), "utf8");
+  const runtimePolicy = await readFile(new URL("../provision/runtime-policy.sh", import.meta.url), "utf8");
   await mkdir(c.stateDirectory, { recursive: true, mode: 0o700 });
   const stateFile = path.join(c.stateDirectory, "tasks.json");
   let tasks;
@@ -238,7 +238,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
     )
       fail("节点名或 IP 已存在；请核对现有节点，禁止重复初始化");
     const script = runtimePolicy + "\n" + await readFile(
-      new URL("./provision/precheck.sh", import.meta.url),
+      new URL("../provision/precheck.sh", import.meta.url),
       "utf8",
     );
     await ssh(
@@ -263,7 +263,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
       if (task.kind === 'registry') {
         task.progress = 5;
         await step(task, '连接新节点并拉取仓库证书', async () => {
-          const script = await readFile(new URL('./provision/registry.sh', import.meta.url), 'utf8');
+          const script = await readFile(new URL('../provision/registry.sh', import.meta.url), 'utf8');
           await ssh(target, registryEnvironment(registry) + `export REGISTRY_MODE=prepare\nexport REGISTRY_CACHE='/etc/kubescope/registry/prepared/${task.id}'\n` + script, password, sshPassword);
         });
         task.progress = 100;
@@ -285,7 +285,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
         "初始化系统并安装锁定版本的 containerd、kubelet、kubeadm",
         async () => {
           const script = runtimePolicy + "\n" + await readFile(
-            new URL("./provision/install.sh", import.meta.url),
+            new URL("../provision/install.sh", import.meta.url),
             "utf8",
           );
           installationStarted = true;
@@ -299,7 +299,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
       );
       if (registry || prepared) {
         await step(task, "配置工作节点自建镜像仓库、hosts 和 TLS 证书", async () => {
-          const script = await readFile(new URL("./provision/registry.sh", import.meta.url), "utf8");
+          const script = await readFile(new URL("../provision/registry.sh", import.meta.url), "utf8");
           const environment = prepared
             ? `export REGISTRY_IP='${prepared.registry.ip}'\nexport REGISTRY_MODE=apply\nexport REGISTRY_CACHE='/etc/kubescope/registry/prepared/${prepared.id}'\n`
             : registryEnvironment(registry);
@@ -413,7 +413,7 @@ export async function createExecutor(config, run = command, connect = remoteSsh)
         task.stage = "扩容失败，正在收集节点诊断日志";
         addLog("diagnostic", "收集 kubelet、containerd 和 apt 的近期日志（只读，最长 30 秒）");
         try {
-          const diagnostic = await readFile(new URL("./provision/diagnostics.sh", import.meta.url), "utf8");
+          const diagnostic = await readFile(new URL("../provision/diagnostics.sh", import.meta.url), "utf8");
           await ssh(target, diagnostic, password, sshPassword, 30000);
         } catch (diagnosticError) { addLog("diagnostic", redactLog(diagnosticError.message, [password, sshPassword, registry?.token])); }
       }

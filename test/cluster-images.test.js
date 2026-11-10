@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { discoverImages, manifestImages, flannelManifest } from '../server/cluster-images.js';
-import { createClusterService } from '../server/cluster-service.js';
-import { deploymentSteps } from '../server/cluster-steps.js';
+import { discoverImages, manifestImages, flannelManifest } from '../server/cluster/cluster-images.js';
+import { createClusterService } from '../server/cluster/cluster-service.js';
+import { deploymentSteps } from '../server/cluster/cluster-steps.js';
 
 const yaml = `kind: List
 items:

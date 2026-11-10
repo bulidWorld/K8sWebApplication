@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compareHosts, createHostsService, hostsWriteScript, selectedHosts } from '../server/expansion-hosts.js';
+import { compareHosts, createHostsService, hostsWriteScript, selectedHosts } from '../server/expansion/expansion-hosts.js';
 import { createHash } from 'node:crypto';
 
 const master = '127.0.0.1 localhost\n10.0.0.1 master api # cluster\n';

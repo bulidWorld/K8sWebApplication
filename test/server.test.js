@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { KubeConfig } from "@kubernetes/client-node";
 import { createApp } from "../server/index.js";
-import { createKubernetes, resourcePath, logsPath } from "../server/kubernetes.js";
+import { createKubernetes, resourcePath, logsPath } from "../server/core/kubernetes.js";
 async function withServer(kubernetes, run, token = "", staticDirectory) {
   const app = createApp({ kubernetes, token, staticDirectory });
   await app.listen(0, "127.0.0.1");

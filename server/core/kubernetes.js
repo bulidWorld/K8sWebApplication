@@ -2,19 +2,19 @@ import http from "node:http";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-export const managedKubeconfig = fileURLToPath(new URL("../var/cluster/kubeconfig", import.meta.url));
+export const managedKubeconfig = fileURLToPath(new URL("../../var/cluster/kubeconfig", import.meta.url));
 import https from "node:https";
 import { KubeConfig } from "@kubernetes/client-node";
 import { applyManifest } from './apply.js';
 
 const groups = {
   nodes: "/api/v1", namespaces: "/api/v1", pods: "/api/v1",
-  services: "/api/v1", events: "/api/v1",
+  services: "/api/v1", events: "/api/v1", configmaps: "/api/v1",
   persistentvolumeclaims: "/api/v1", persistentvolumes: "/api/v1",
   deployments: "/apis/apps/v1", storageclasses: "/apis/storage.k8s.io/v1",
   customresourcedefinitions: "/apis/apiextensions.k8s.io/v1",
 };
-export const namespaced = new Set(["pods", "services", "events", "persistentvolumeclaims", "deployments"]);
+export const namespaced = new Set(["pods", "services", "events", "persistentvolumeclaims", "deployments", "configmaps"]);
 export function validateName(value, label = "资源名称") {
   if (!value || !/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(value))
     throw Object.assign(new Error(`${label}格式不正确`), { status: 400 });
@@ -43,7 +43,7 @@ export function logsPath(query) {
 }
 
 // Preserve the API server's JSON fields without generated-model conversion.
-export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024 * 1024 } = {}) {
+export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024 * 1024, logger } = {}) {
   let kc = config;
   function configuration() {
     if (!kc) {
@@ -65,6 +65,27 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
     return kc;
   }
   async function request(apiPath, json = true, mutation, settings = {}) {
+    const method = settings.method || (mutation ? "PATCH" : "GET");
+    let statusCode;
+    const auditValue = value => {
+      const sensitive = /^(authorization|token|password|passwd|secret|clientkey|privatekey|data|stringdata)$/i;
+      const clean = item => {
+        if (Array.isArray(item)) return item.map(clean);
+        if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).map(([key, child]) => [key, sensitive.test(key) ? '[REDACTED]' : clean(child)]));
+        if (typeof item === 'string') return item.length > 8192 ? `${item.slice(0, 8192)}…[截断]` : item;
+        return item;
+      };
+      const result = clean(value);
+      const text = JSON.stringify(result);
+      return text?.length > 32768 ? `${text.slice(0, 32768)}…[截断]` : result;
+    };
+    const audit = (result, error) => logger?.write?.('kubernetes_api', {
+      interface: `${method} ${apiPath}`,
+      method,
+      statusCode: statusCode ?? error?.statusCode ?? error?.status ?? null,
+      params: auditValue(mutation ?? Object.fromEntries(new URLSearchParams(apiPath.split('?')[1] || ''))),
+      ...(error ? { success: false, error: error.message } : { success: true, response: auditValue(result) }),
+    });
     try {
       // Includes credential refresh in the total deadline; abort destroys the socket.
       const controller = new AbortController();
@@ -87,6 +108,7 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
           return new Promise((resolve, reject) => {
             const transport = target.protocol === "https:" ? https : http;
             const req = transport.request(target, { ...options, method: settings.method || (mutation ? "PATCH" : "GET"), signal: controller.signal }, (res) => {
+              statusCode = res.statusCode;
               const chunks = [];
               let size = 0;
               res.on("data", (chunk) => {
@@ -113,9 +135,12 @@ export function createKubernetes({ config, timeout = 15000, maxBytes = 10 * 1024
           });
         };
         const aborted = new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("访问 Kubernetes 超时，请检查集群连接。")), { once: true }));
-        return await Promise.race([operation(), aborted]);
+        const result = await Promise.race([operation(), aborted]);
+        audit(result);
+        return result;
       } finally { clearTimeout(timer); }
     } catch (error) {
+      audit(undefined, error);
       throw Object.assign(new Error(error.message || "Kubernetes API 请求失败"), { status: mutation || settings.preserveStatus ? error.status || 502 : 502, code: error.code });
     }
   }

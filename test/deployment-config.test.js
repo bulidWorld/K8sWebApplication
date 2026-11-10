@@ -5,9 +5,9 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { KubeConfig } from '@kubernetes/client-node';
-import { buildModulePatch, quantity } from '../server/deployment-config.js';
+import { buildModulePatch, quantity } from '../server/resources/deployment-config.js';
 import { createApp } from '../server/index.js';
-import { createKubernetes } from '../server/kubernetes.js';
+import { createKubernetes } from '../server/core/kubernetes.js';
 
 function deployment() {
   return { metadata: { name: 'office', namespace: 'apps', uid: 'uid-1', resourceVersion: '123', generation: 1 }, spec: { replicas: 1, template: { spec: { containers: [

@@ -3,9 +3,12 @@ import { labels } from "../lib/resources.js";
 import api from "../lib/api.js";
 import download from "../lib/download.js";
 import NodeLabels from './NodeLabels.jsx';
+import NodeHosts from './NodeHosts.jsx';
 import PvDefinition from './PvDefinition.jsx';
 import DeploymentConfig from './DeploymentConfig.jsx';
 import CustomResources from './CustomResources.jsx';
+import ResourceDefinition from './ResourceDefinition.jsx';
+import ConfigMapEditor from './ConfigMapEditor.jsx';
 
 export default function ResourceDialog({ selection, close, token, onUpdated, onTabChange, registerNavigationGuard }) {
   const { kind, item: initialItem, initialTab } = selection;
@@ -103,8 +106,11 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
         >
           资源详情
         </button>
+        {kind !== 'events' && kind !== 'customresourcedefinitions' && <button className={tab === 'edit' ? 'selected' : ''} onClick={() => switchTab('edit')}>编辑定义</button>}
         {kind === 'persistentvolumes' && <button className={tab === 'definition' ? 'selected' : ''} onClick={() => switchTab('definition')}>编辑定义</button>}
+        {kind === 'nodes' && <button className={tab === 'hosts' ? 'selected' : ''} onClick={() => switchTab('hosts')}>域名映射</button>}
         {kind === 'nodes' && <button className={tab === 'labels' ? 'selected' : ''} onClick={() => switchTab('labels')}>标签</button>}
+        {kind === 'configmaps' && <button className={tab === 'config' ? 'selected' : ''} onClick={() => switchTab('config')}>配置项</button>}
         {kind === 'deployments' && <button className={tab === 'config' ? 'selected' : ''} onClick={() => switchTab('config')}>模块配置</button>}
         {kind === "pods" && (
           <button
@@ -115,7 +121,7 @@ export default function ResourceDialog({ selection, close, token, onUpdated, onT
           </button>
         )}
       </div>
-      {tab === 'custom-resources' && kind === 'customresourcedefinitions' ? <CustomResources key={item.metadata.name} crd={item} token={token} /> : tab === 'definition' && kind === 'persistentvolumes' ? <PvDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
+      {tab === 'config' && kind === 'configmaps' ? <ConfigMapEditor item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'hosts' && kind === 'nodes' ? <NodeHosts key={item.metadata.name} item={item} token={token} onDirty={setConfigDirty} /> : tab === 'edit' && kind !== 'events' && kind !== 'customresourcedefinitions' ? <ResourceDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'custom-resources' && kind === 'customresourcedefinitions' ? <CustomResources key={item.metadata.name} crd={item} token={token} onDirty={setConfigDirty} onUpdated={() => onUpdated?.()} /> : tab === 'definition' && kind === 'persistentvolumes' ? <PvDefinition item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'labels' && kind === 'nodes' ? <NodeLabels item={item} token={token} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === 'config' && kind === 'deployments' ? <DeploymentConfig item={item} token={token} initialModule={initialTab?.startsWith('config:') ? initialTab.slice(7) : ''} onDirty={setConfigDirty} onResourceUpdated={value => { setItem(value); onUpdated?.(); }} /> : tab === "detail" ? (
         <>
           <div className="detail-summary">
             <span>

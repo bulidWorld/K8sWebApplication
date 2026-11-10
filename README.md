@@ -10,10 +10,14 @@
 - Service 列表支持查看详情、下载 JSON 和删除。删除须确认，使用 UID 前置条件保护同名重建资源；要求访问令牌、同源请求及当前集群身份的 `services/delete` 权限。删除 Service 会中断经该服务的访问，不删除关联 Pod；只读角色 `deploy/rbac.yaml` 不包含删除权限。
 - CRD 列表“实例数”列显示对应 CR 的集群总数（跨全部命名空间），点击数量可查看实例。数量异步加载并随列表刷新，统计分页结果；权限不足或查询失败显示“读取失败”，悬停可查看原因。
 - CRD 列表操作列提供“查看 CR”，打开对应实例列表，支持命名空间查询、搜索、刷新、JSON 详情及下载。优先使用 served 的存储版本，否则使用第一个 served 版本。通过 API Server 查询；集群身份还需拥有对应 API 组和资源的 `list` 权限（仅 CRD get/list 权限不足）。
+- 独立的“CR 实例”菜单支持按 CRD 切换类型、按当前命名空间筛选、搜索并编辑 CR。编辑器提供“字段表单”和“原始 YAML”页签；表单字段根据 CRD OpenAPI schema 渲染，标量字段可直接输入，数组/自由对象使用 JSON 值编辑。两页签共享保存、未保存离开保护和资源版本校验。
 - 查看存储声明（PVC）、持久卷（PV）和存储类（StorageClass）：容量、状态、访问模式、绑定关系及 JSON 详情；PVC 支持命名空间筛选。
+- PVC 列表支持删除：确认后通过 UID 前置条件删除指定声明。删除会影响使用该卷的工作负载；绑定 PV 的底层数据处理取决于 PV 回收策略（`Delete` 可能删除底层存储，`Retain` 会保留）。由 StatefulSet 管理的 PVC 也可能自动重建。需要当前身份的 `persistentvolumeclaims/delete` 权限，可参考 `deploy/pvc-delete-rbac.yaml`。
 - PV 定义编辑：在持久卷列表点击“编辑定义”，支持 YAML/JSON 修改标签、注解及 spec，保存后刷新详情和列表；未保存离开提醒，UID/资源版本并发保护，失败保留编辑内容。
+- 通用资源定义编辑：资源详情页提供“编辑定义”，支持通过 API discovery 编辑 Kubernetes 内置资源及 CRD 实例的 `spec`、标签和注解；名称、命名空间、UID、resourceVersion、status 不可修改。由 API Server 校验具体 Kind 的字段和不可变规则，保存使用 UID/resourceVersion 原子校验，未保存离开提醒。Prometheus 等 CRD 实例从 CRD → 对应 CR → 实例详情进入编辑。
 - 命名空间筛选，按名称、命名空间、标签和节点搜索，按状态筛选。
 - Pod 删除：列表中点击“删除”后弹框确认，展示命名空间及名称，提交后刷新列表。使用 UID 前置条件防止误删同名重建 Pod，遵循默认终止宽限期；删除权限见 `deploy/pod-delete-rbac.yaml`，需绑定到 kubeconfig 使用的身份。
+- PVC 删除：在 PVC 列表点击“删除”后确认，使用 UID 前置条件防止误删同名重建声明；删除可能影响工作负载及底层数据，详情见上方说明。权限见 `deploy/pvc-delete-rbac.yaml`。
 - Pod 日志：切换普通/初始化/临时容器、最近 100–5000 行、上次实例、每 5 秒刷新、下载；每次日志请求最大 1 MiB。
 - 手动刷新或每 15 秒刷新资源。明确展示连接、RBAC、超时、空列表等状态。
 - Deployment 第一期配置：镜像与版本、环境变量与 Secret/ConfigMap 引用、CPU/内存与副本数、HTTP/HTTPS 健康检查；模块独立预览和提交，支持多容器选择、并发版本检测、发布状态刷新。
@@ -84,7 +88,7 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 
 ## 节点扩容
 
-节点页面提供“添加节点”：首次在页面自动识别并保存集群参数，填写新机器 IP、SSH 用户并核对指纹，输入登录密码和 sudo 密码后，先对比 master 与新节点的 hosts 配置；页面显示原文、解析映射差异和修改预览，可确认合并或保持原配置，再开始预检、安装并入群。Web 以 root 运行，后台自动创建配置目录与文件，无需手动复制 JSON 或部署独立执行器。密码仅用于当前任务，不落盘。详见 [节点扩容说明](deploy/EXPANSION.md)。
+节点页面提供“添加节点”：首次在页面自动识别并保存集群参数，填写新机器 IP、SSH 用户并核对指纹，输入登录密码和 sudo 密码后，先对比 master 与新节点的 hosts 配置；页面显示原文、解析映射差异和修改预览，可确认合并或保持原配置，再开始预检、安装并入群。Web 以 root 运行，后台自动创建配置目录与文件，无需手动复制 JSON 或部署独立执行器。开始扩容时，已确认的节点登录信息同时保存到“系统维护 → 节点配置”，供后续仓库下发复用；密码存于 Web 服务器权限为 0600 的配置文件，不会回显。详见 [节点扩容说明](deploy/EXPANSION.md)。
 
 ## HTTP API
 
@@ -95,6 +99,7 @@ systemd 模板以 `root` 用户运行，扩容任务直接在 Web 后端执行�
 | `/api/health`                                                               | 当前 context 与 API server 连通性检查                                                              |
 | `/api/resources/:kind?namespace=default`                                    | kind 为 nodes/namespaces/pods/deployments/services/events/persistentvolumeclaims/persistentvolumes/storageclasses/customresourcedefinitions；省略 namespace 时工作负载跨命名空间查询 |
 | `/api/resources/:kind/:name?namespace=default`                              | 单资源 JSON；命名空间资源应指定 namespace                                                          |
+| `DELETE /api/persistentvolumeclaims/:namespace/:name`                       | 删除 PVC；JSON 请求体为 `{"uid":"PVC UID"}`，需要访问令牌、同源请求和对应命名空间的 `delete` 权限 |
 | `/api/events/history`                                                        | 返回本应用按 3 分钟周期增量保存的历史 Kubernetes Events |
 | `/api/logs?namespace=default&pod=web&container=app&tail=200&previous=false` | 带时间戳的日志快照                                                                                 |
 
@@ -182,13 +187,13 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 
 ### 自建镜像仓库
 
-集群服务区域提供“自建镜像仓库”，填写仓库 IPv4、证书接口协议、端口和证书导出 Token 后点击配置。操作目标是运行 Web 后端的本机，需要 root 和已有 containerd 配置。后端直接调用 `server/registry-service.js` 的 `configureRegistry()`，在当前 Node.js 进程内完成请求、证书校验和文件操作，不启动独立 Node.js 进程，也不执行 registry.sh。仅 containerd 配置验证及 systemctl 服务重启调用系统命令。
+新建集群沿用以下顺序：安装 containerd → 配置镜像仓库（可跳过）→ 安装集群工具 → 解析镜像 → 拉取镜像 → 初始化控制平面 → 安装网络 → 验证集群。
 
-本机后端通过 Node.js 原生 HTTP/HTTPS 直连仓库 IP（绕过环境代理，临时服务错误最多重试两次），携带 Bearer Token 请求 `<协议>://<仓库IP>:<证书接口端口>/api/tls/bundle`，读取 `certificate` 和 `privateKey`。校验证书有效期、证书与私钥匹配及四个镜像域名后，备份并修改 `/etc/hosts`，将 `docker.io`、`registry-1.docker.io`、`ghcr.io`、`registry.k8s.io` 指向填写的 IP，保留其他域名和注释。证书接口协议可选择 HTTPS 或 HTTP，默认 HTTPS；端口可配置，HTTPS 默认 443、HTTP 默认 80；镜像仓库需监听 HTTPS 443，并预先存有所需镜像。
+“配置镜像仓库”步骤直接复用“系统维护 → 镜像仓库维护”的同一个模块、仓库记录和配置执行逻辑。无需先创建 K8s 集群，也无需切换到系统菜单：在向导内选择已有仓库或新增仓库，保存仓库 HTTPS 地址和用于 hosts 映射的 IP，拉取/上传公共证书后点击“配置本机”，确认域名、IP 和 hosts 预览。配置成功后继续后续安装；仅执行“快捷 hosts”不会被标记为已完成仓库配置。
 
-证书和私钥存入 `/etc/kubescope/registry/`，目录权限 0700、私钥 0600。containerd 使用 `/etc/containerd/certs.d/<域名>/ca.crt` 和 `hosts.toml` 验证仓库 TLS，按配置版本 2/3 补齐对应 registry 表中的 `config_path`，先用 containerd 验证候选配置，再备份并写入正式配置、重启服务；拉取时不关闭 TLS 校验，也不使用仓库服务端私钥作为客户端身份。Token 仅用于本次请求，不保存到任务记录；表单在任务提交后清空 Token。
+“拉取证书”复用原有 `/api/tls/bundle` 接口，支持 HTTP/HTTPS、端口和一次性证书导出 Token。优先直连保存的仓库 IP，避免新域名尚未配置 hosts 时无法解析。校验公共证书有效期和仓库地址 SAN，仅保存公共证书，接口返回的服务端私钥不保存、不下发。导出 Token 不持久化。也可直接上传 CA 或仓库证书；仓库记录持久化于 `var/registries.json`（0600），由本机配置及后续节点维护共用。
 
-本机 hosts 和 containerd 主配置备份分别为 `/etc/hosts.kubescope-registry-<时间>-<UUID>.bak`、`/etc/containerd/config.toml.kubescope-registry-<时间>-<UUID>.bak`。失败日志包含阶段、文件路径及 JavaScript 堆栈，并过滤 Token 和私钥。本机配置入口仅操作 Web 后端主机；工作节点可在“节点扩容”中勾选“使用自建镜像仓库”，填写仓库 IP 和 Token。扩容流程在安装 containerd 后、执行 kubeadm join 前，通过 SSH 执行 `server/provision/registry.sh` 在目标节点获取 bundle（远程节点无需 Node.js）、修改 hosts 并配置证书；仓库配置失败会停止入群。每次扩容需重新填写 Token，Token 不保存到扩容配置或任务记录。配置失败时检查任务日志及备份，完成实际镜像拉取验证后再部署业务。
+本机配置通过 Web 后端直接执行，不依赖 Kubernetes API 或临时 Pod，需要 root 及已安装的 containerd。它与节点下发共用镜像源、CA 信任、可选 hosts 映射、备份和回滚逻辑。“快捷 hosts”只修改 `/etc/hosts`，可在安装 containerd 前使用，不要求证书。原有节点扩容的 IP/Token 配置入口保持兼容；已入群节点可直接在仓库维护列表选择节点下发同一份保存的仓库配置。
 
 ### 集群部署镜像检查
 
@@ -257,3 +262,15 @@ API 实现依据 Context7 查询的 [Kubernetes 官方 JavaScript 客户端文�
 Pod 删除接口：`DELETE /api/pods/:namespace/:name`，JSON 请求体为 `{"uid":"Pod UID"}`，要求访问令牌和同源 Origin。保留 Kubernetes 403/404/409 等错误，禁止批量删除和强制删除参数。删除行为参见 [Kubernetes Pod API](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/)。
 
 PV 定义接口：`PATCH /api/persistentvolumes/:name/definition`，JSON 请求体包含 `manifest`（YAML/JSON 字符串）、`uid`、`resourceVersion`，最大 128 KiB，要求访问令牌和同源 Origin。可选权限见 `deploy/pv-editor-rbac.yaml`；更新写入现有审计日志。不可变字段等限制由 Kubernetes 校验并返回错误，不执行删除重建。参见 [Kubernetes PV API](https://kubernetes.io/docs/reference/kubernetes-api/core/persistent-volume-v1/)。
+
+通用资源定义编辑接口为 `PATCH /api/resource-definition`，请求体包含完整 YAML/JSON `manifest`，最大 128 KiB；按 `apiVersion` 和 `kind` 发现 API 路径，不接受 `status` 或服务端管理字段。身份需对目标资源拥有 `get`、`patch` 权限；API Server 拒绝的字段（包括不可变字段）会原样返回错误。
+
+### 镜像仓库维护与节点下发
+
+在“系统维护 → 镜像仓库维护”可从 PEM 证书的 SAN 解析多个仓库地址。这些地址是同一仓库的备用入口，顺序就是镜像拉取的尝试顺序。保存时逐一校验证书是否覆盖每个地址，并将地址映射到填写的 IP；本机及工作节点会安装公共证书到系统 CA 信任目录，并刷新系统证书。点击“下发到节点”后，会为所选镜像源域名及各仓库地址写入 `/etc/containerd/certs.d/<域名>/hosts.toml` 和公共证书，使每个镜像源都按地址列表顺序尝试这些入口并校验证书。它不下发仓库服务端私钥或登录密码；拉取认证由工作负载的 imagePullSecrets 等现有机制提供。当前下发不支持需要双向 TLS 客户端证书的仓库。
+
+“系统维护 → 节点配置”操作列中的“域名配置”可为当前节点配置仓库 IP 与域名，也可选择同步到其他节点（默认不同步）；它会保留正确映射，替换所选域名的错误映射，并保留其他别名与注释。单独执行 hosts 操作无需 CA 或 containerd，也不会重启服务。
+
+节点已有配置会备份为同目录的 `*.kubescope-<备份标识>.bak`。如果 containerd 的 `config_path` 已指向 `/etc/containerd/certs.d`，信任配置通过热更新生效；否则修改 `/etc/containerd/config.toml`，验证配置并重启 containerd。执行失败会尝试回滚文件并恢复服务，结果列出失败原因和备份标识。下发任务在 Web 服务内存中运行，刷新页面可继续查询；服务重启后任务记录不保留，应检查节点状态后重新下发。
+
+下发通过 SSH 直接在节点宿主机执行，不依赖临时 Pod 或维护镜像。先在“系统维护 → 节点配置”为各节点保存 SSH 用户、认证方式与可选的 sudo 密码，并确认 SSH 主机指纹；密码保存在 Web 服务器受限的配置文件中，不会回显。工作节点需要 Python 3、`update-ca-certificates`，以及在需要重启 containerd 时可用的 systemd；实际 containerd 配置文件为 `/etc/containerd/config.toml`。

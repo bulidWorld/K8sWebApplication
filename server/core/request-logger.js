@@ -1,8 +1,8 @@
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { redactLog } from './expansion-logs.js';
+import { redactLog } from '../expansion/expansion-logs.js';
 
 const context = new AsyncLocalStorage();
 export function createRequestLogger({ directory = process.env.K8S_LOG_DIR || '/var/service/kubescope/log', secrets = [] } = {}) {
@@ -46,6 +46,25 @@ export function createRequestLogger({ directory = process.env.K8S_LOG_DIR || '/v
         res.once('close', () => complete(!res.writableFinished));
         return handler();
       });
+    },
+    async list(limit = 300, event) {
+      await queue;
+      let files = [];
+      try { files = (await readdir(directory)).filter(name => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)).sort().reverse().slice(0, 7); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const records = [];
+      for (const name of files) {
+        const lines = (await readFile(path.join(directory, name), 'utf8')).split('\n').filter(Boolean).reverse();
+        for (const line of lines) {
+          try {
+            const record = JSON.parse(line);
+            if (!event || record.event === event) records.push(record);
+          } catch {}
+          if (records.length >= limit) break;
+        }
+        if (records.length >= limit) break;
+      }
+      return records;
     },
     flush: () => queue,
   };

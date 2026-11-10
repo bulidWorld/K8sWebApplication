@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { validateRegistry, registryEnvironment } from '../server/registry-config.js';
+import { validateRegistry, registryEnvironment } from '../server/registry/registry-config.js';
 
 test('证书接口端口默认 443，支持自定义端口并拒绝无效输入', () => {
   const registry = { ip: '10.0.0.20', token: 'test-secret' };

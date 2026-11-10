@@ -11,6 +11,8 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
   const [deletingUid, setDeletingUid] = useState('');
   const [deleteResult, setDeleteResult] = useState(null);
   const [eventView, setEventView] = useState('live');
+  const [serviceTypeFilter, setServiceTypeFilter] = useState('');
+  useEffect(() => { setServiceTypeFilter(''); }, [section]);
   const [historyEvents, setHistoryEvents] = useState([]);
   const [historyError, setHistoryError] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -27,9 +29,11 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
   async function removeResource(item) {
     if (deleting.current || !item.metadata.uid || item.metadata.deletionTimestamp) return;
     const kind = section;
-    if (!['pods', 'services'].includes(kind)) return;
-    const label = kind === 'pods' ? 'Pod' : 'Service';
-    const impact = kind === 'pods' ? '删除会终止该 Pod 中的容器。由 Deployment、StatefulSet 等控制器管理的 Pod 可能会自动重建。' : '删除后，通过该 Service 访问应用的流量将中断，关联的 Pod 不会被删除。';
+    if (!['pods', 'services', 'persistentvolumeclaims'].includes(kind)) return;
+    const label = kind === 'pods' ? 'Pod' : kind === 'services' ? 'Service' : 'PVC';
+    const boundPv = kind === 'persistentvolumeclaims' && data.persistentvolumes?.find(pv => pv.metadata.name === item.spec?.volumeName);
+    const reclaim = boundPv ? `绑定 PV ${boundPv.metadata.name} 的回收策略为 ${boundPv.spec?.persistentVolumeReclaimPolicy || '未指定'}。${boundPv.spec?.persistentVolumeReclaimPolicy === 'Delete' ? '删除声明后，存储供应器可能删除底层数据。' : boundPv.spec?.persistentVolumeReclaimPolicy === 'Retain' ? 'PV 和底层数据会保留，但需手动处理后续回收。' : ''}` : kind === 'persistentvolumeclaims' ? '该 PVC 当前未绑定 PV。若由 StatefulSet 等控制器管理，删除后可能会自动重建。' : '';
+    const impact = kind === 'pods' ? '删除会终止该 Pod 中的容器。由 Deployment、StatefulSet 等控制器管理的 Pod 可能会自动重建。' : kind === 'services' ? '删除后，通过该 Service 访问应用的流量将中断，关联的 Pod 不会被删除。' : `删除会中断使用该存储声明的工作负载访问。${reclaim}`;
     const { namespace, name, uid } = item.metadata;
     if (!window.confirm(`确定删除 ${label}「${namespace}/${name}」吗？\n\n${impact}`)) return;
     deleting.current = true;
@@ -73,6 +77,18 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
                       </button>
                     )}
                   </div>
+                  {section === 'services' && (
+                    <select
+                      aria-label="类型筛选"
+                      value={serviceTypeFilter}
+                      onChange={(e) => setServiceTypeFilter(e.target.value)}
+                    >
+                      <option value="">所有类型</option>
+                      {['ClusterIP', 'NodePort', 'LoadBalancer', 'ExternalName'].map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  )}
                   {statuses.length > 0 && (
                     <select
                       aria-label="状态筛选"
@@ -124,6 +140,7 @@ export default function ResourcesPage({ section, deploymentModule, data, errors,
                   items={data[section] || []}
                   search={search}
                   statusFilter={statusFilter}
+                  typeFilter={section === 'services' ? serviceTypeFilter : ''}
                   open={(kind, item, tab) => open(kind, item, section === 'deployments' && deploymentModule ? `config:${deploymentModule}` : tab)}
                 />
               )}

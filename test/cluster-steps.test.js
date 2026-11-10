@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir, networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createClusterService } from '../server/cluster-service.js';
-import { deploymentSteps, deploymentScript } from '../server/cluster-steps.js';
+import { createClusterService } from '../server/cluster/cluster-service.js';
+import { deploymentSteps, deploymentScript } from '../server/cluster/cluster-steps.js';
 
 async function settled(service) {
   for (let i = 0; i < 200; i++) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateNodeImport, parseNodeImportXml, NODE_XML_MAX_BYTES } from '../src/lib/node-import.js';
-import { selectedHosts } from '../server/expansion-hosts.js';
+import { selectedHosts } from '../server/expansion/expansion-hosts.js';
 const target = { host: '192.168.1.21', user: 'ubuntu', nodeName: 'worker-02' };
 
 test('XML import defaults and optional credentials preserve password whitespace', () => {

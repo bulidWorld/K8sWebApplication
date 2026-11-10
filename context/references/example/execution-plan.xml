@@ -1,0 +1,489 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<executionPlan xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:noNamespaceSchemaLocation="../deployment-plan.xsd">
+  <step name="给 worker-01 添加 prometheus-worker 标签">
+    <patch node="worker-01" type="merge">
+      <file>PrometheusDeployement/0001-labelNode.yaml</file>
+    </patch>
+  </step>
+  <step name="创建 Prometheus TSDB 本地 PV">
+    <apply>
+      <file>PrometheusDeployement/0002-tsdbPVC.yaml</file>
+    </apply>
+  </step>
+  <step name="0010-0alertmanagerConfigCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0010-0alertmanagerConfigCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0020-0alertmanagerCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0020-0alertmanagerCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0030-0podmonitorCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0030-0podmonitorCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0040-0probeCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0040-0probeCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0050-0prometheusCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0050-0prometheusCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0060-0prometheusagentCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0060-0prometheusagentCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0070-0prometheusruleCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0070-0prometheusruleCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0080-0scrapeconfigCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0080-0scrapeconfigCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0090-0servicemonitorCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0090-0servicemonitorCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0100-0thanosrulerCustomResourceDefinition">
+    <serverSideApply>
+      <file>PrometheusDeployement/0100-0thanosrulerCustomResourceDefinition.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0110-namespace">
+    <serverSideApply>
+      <file>PrometheusDeployement/0110-namespace.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0120-alertmanager-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0120-alertmanager-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0130-blackboxExporter-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0130-blackboxExporter-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0140-blackboxExporter-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0140-blackboxExporter-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0150-blackboxExporter-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0150-blackboxExporter-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0160-grafana-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0160-grafana-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0170-kubeStateMetrics-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0170-kubeStateMetrics-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0180-kubeStateMetrics-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0180-kubeStateMetrics-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0190-kubeStateMetrics-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0190-kubeStateMetrics-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0200-nodeExporter-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0200-nodeExporter-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0210-nodeExporter-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0210-nodeExporter-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0220-nodeExporter-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0220-nodeExporter-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0230-prometheus-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0230-prometheus-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0240-prometheus-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0240-prometheus-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0250-prometheus-roleBindingConfig">
+    <serverSideApply>
+      <file>PrometheusDeployement/0250-prometheus-roleBindingConfig.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0260-prometheus-roleBindingSpecificNamespaces">
+    <serverSideApply>
+      <file>PrometheusDeployement/0260-prometheus-roleBindingSpecificNamespaces.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0270-prometheus-roleConfig">
+    <serverSideApply>
+      <file>PrometheusDeployement/0270-prometheus-roleConfig.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0280-prometheus-roleSpecificNamespaces">
+    <serverSideApply>
+      <file>PrometheusDeployement/0280-prometheus-roleSpecificNamespaces.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0290-prometheus-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0290-prometheus-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0300-prometheusAdapter-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0300-prometheusAdapter-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0310-prometheusAdapter-clusterRoleAggregatedMetricsReader">
+    <serverSideApply>
+      <file>PrometheusDeployement/0310-prometheusAdapter-clusterRoleAggregatedMetricsReader.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0320-prometheusAdapter-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0320-prometheusAdapter-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0330-prometheusAdapter-clusterRoleBindingDelegator">
+    <serverSideApply>
+      <file>PrometheusDeployement/0330-prometheusAdapter-clusterRoleBindingDelegator.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0340-prometheusAdapter-clusterRoleServerResources">
+    <serverSideApply>
+      <file>PrometheusDeployement/0340-prometheusAdapter-clusterRoleServerResources.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0350-prometheusAdapter-roleBindingAuthReader">
+    <serverSideApply>
+      <file>PrometheusDeployement/0350-prometheusAdapter-roleBindingAuthReader.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0360-prometheusAdapter-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0360-prometheusAdapter-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0370-prometheusOperator-clusterRole">
+    <serverSideApply>
+      <file>PrometheusDeployement/0370-prometheusOperator-clusterRole.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0380-prometheusOperator-clusterRoleBinding">
+    <serverSideApply>
+      <file>PrometheusDeployement/0380-prometheusOperator-clusterRoleBinding.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0390-prometheusOperator-serviceAccount">
+    <serverSideApply>
+      <file>PrometheusDeployement/0390-prometheusOperator-serviceAccount.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0400-alertmanager-secret">
+    <serverSideApply>
+      <file>PrometheusDeployement/0400-alertmanager-secret.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0410-blackboxExporter-configuration">
+    <serverSideApply>
+      <file>PrometheusDeployement/0410-blackboxExporter-configuration.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0420-grafana-config">
+    <serverSideApply>
+      <file>PrometheusDeployement/0420-grafana-config.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0430-prometheusAdapter-configMap">
+    <serverSideApply>
+      <file>PrometheusDeployement/0430-prometheusAdapter-configMap.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0440-alertmanager-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0440-alertmanager-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0450-alertmanager-podDisruptionBudget">
+    <serverSideApply>
+      <file>PrometheusDeployement/0450-alertmanager-podDisruptionBudget.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0460-alertmanager-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0460-alertmanager-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0470-blackboxExporter-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0470-blackboxExporter-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0480-blackboxExporter-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0480-blackboxExporter-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0490-grafana-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0490-grafana-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0500-grafana-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0500-grafana-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0510-kubeStateMetrics-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0510-kubeStateMetrics-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0520-kubeStateMetrics-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0520-kubeStateMetrics-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0530-nodeExporter-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0530-nodeExporter-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0540-nodeExporter-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0540-nodeExporter-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0550-prometheus-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0550-prometheus-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0560-prometheus-podDisruptionBudget">
+    <serverSideApply>
+      <file>PrometheusDeployement/0560-prometheus-podDisruptionBudget.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0570-prometheus-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0570-prometheus-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0580-prometheusAdapter-apiService">
+    <serverSideApply>
+      <file>PrometheusDeployement/0580-prometheusAdapter-apiService.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0590-prometheusAdapter-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0590-prometheusAdapter-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0600-prometheusAdapter-podDisruptionBudget">
+    <serverSideApply>
+      <file>PrometheusDeployement/0600-prometheusAdapter-podDisruptionBudget.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0610-prometheusAdapter-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0610-prometheusAdapter-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0620-prometheusOperator-networkPolicy">
+    <serverSideApply>
+      <file>PrometheusDeployement/0620-prometheusOperator-networkPolicy.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0630-prometheusOperator-service">
+    <serverSideApply>
+      <file>PrometheusDeployement/0630-prometheusOperator-service.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0640-blackboxExporter-deployment">
+    <serverSideApply>
+      <file>PrometheusDeployement/0640-blackboxExporter-deployment.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0650-grafana-deployment">
+    <serverSideApply>
+      <file>PrometheusDeployement/0650-grafana-deployment.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0660-kubeStateMetrics-deployment">
+    <serverSideApply>
+      <file>PrometheusDeployement/0660-kubeStateMetrics-deployment.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0670-nodeExporter-daemonset">
+    <serverSideApply>
+      <file>PrometheusDeployement/0670-nodeExporter-daemonset.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0680-prometheusAdapter-deployment">
+    <serverSideApply>
+      <file>PrometheusDeployement/0680-prometheusAdapter-deployment.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0690-prometheusOperator-deployment">
+    <serverSideApply>
+      <file>PrometheusDeployement/0690-prometheusOperator-deployment.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0700-alertmanager-alertmanager">
+    <serverSideApply>
+      <file>PrometheusDeployement/0700-alertmanager-alertmanager.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0710-prometheus-prometheus">
+    <serverSideApply>
+      <file>PrometheusDeployement/0710-prometheus-prometheus.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0720-alertmanager-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0720-alertmanager-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0730-blackboxExporter-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0730-blackboxExporter-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0740-grafana-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0740-grafana-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0750-kubernetesControlPlane-serviceMonitorApiserver">
+    <serverSideApply>
+      <file>PrometheusDeployement/0750-kubernetesControlPlane-serviceMonitorApiserver.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0760-kubernetesControlPlane-serviceMonitorCoreDNS">
+    <serverSideApply>
+      <file>PrometheusDeployement/0760-kubernetesControlPlane-serviceMonitorCoreDNS.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0770-kubernetesControlPlane-serviceMonitorKubeControllerManager">
+    <serverSideApply>
+      <file>PrometheusDeployement/0770-kubernetesControlPlane-serviceMonitorKubeControllerManager.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0780-kubernetesControlPlane-serviceMonitorKubelet">
+    <serverSideApply>
+      <file>PrometheusDeployement/0780-kubernetesControlPlane-serviceMonitorKubelet.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0790-kubernetesControlPlane-serviceMonitorKubeScheduler">
+    <serverSideApply>
+      <file>PrometheusDeployement/0790-kubernetesControlPlane-serviceMonitorKubeScheduler.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0800-kubeStateMetrics-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0800-kubeStateMetrics-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0810-nodeExporter-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0810-nodeExporter-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0820-prometheus-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0820-prometheus-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0830-prometheusAdapter-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0830-prometheusAdapter-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0840-prometheusOperator-serviceMonitor">
+    <serverSideApply>
+      <file>PrometheusDeployement/0840-prometheusOperator-serviceMonitor.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0850-alertmanager-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0850-alertmanager-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0860-grafana-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0860-grafana-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0870-kubePrometheus-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0870-kubePrometheus-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0880-kubernetesControlPlane-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0880-kubernetesControlPlane-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0890-kubeStateMetrics-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0890-kubeStateMetrics-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0900-nodeExporter-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0900-nodeExporter-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0910-prometheus-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0910-prometheus-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0920-prometheusOperator-prometheusRule">
+    <serverSideApply>
+      <file>PrometheusDeployement/0920-prometheusOperator-prometheusRule.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0930-grafana-dashboardDatasources">
+    <serverSideApply>
+      <file>PrometheusDeployement/0930-grafana-dashboardDatasources.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0940-grafana-dashboardDefinitions">
+    <serverSideApply>
+      <file>PrometheusDeployement/0940-grafana-dashboardDefinitions.yaml</file>
+    </serverSideApply>
+  </step>
+  <step name="0950-grafana-dashboardSources">
+    <serverSideApply>
+      <file>PrometheusDeployement/0950-grafana-dashboardSources.yaml</file>
+    </serverSideApply>
+  </step>
+</executionPlan>

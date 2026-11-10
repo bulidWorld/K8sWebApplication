@@ -1,4 +1,4 @@
-import { resourcePath, validateName } from './kubernetes.js';
+import { resourcePath, validateName } from '../core/kubernetes.js';
 
 export async function listCustomResources(kubernetes, crdName, namespace = '', countOnly = false) {
   const crd = await kubernetes.request(resourcePath('customresourcedefinitions', '', crdName));
@@ -25,5 +25,5 @@ export async function listCustomResources(kubernetes, crdName, namespace = '', c
     return { count };
   }
   const result = await kubernetes.request(`${target}/${plural}`);
-  return { ...result, apiVersion, resourceKind: spec.names.kind, scope: spec.scope };
+  return { ...result, apiVersion, resourceKind: spec.names.kind, scope: spec.scope, schema: version.schema?.openAPIV3Schema || null, crdName };
 }

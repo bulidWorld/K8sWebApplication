@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createApp } from '../server/index.js';
-import { createKubernetes } from '../server/kubernetes.js';
+import { createKubernetes } from '../server/core/kubernetes.js';
 
 async function listen(app) {
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));

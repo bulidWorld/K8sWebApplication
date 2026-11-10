@@ -1,4 +1,4 @@
-import { validateName } from './kubernetes.js';
+import { validateName } from '../core/kubernetes.js';
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 function object(value, keys, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) fail(`${label}包含不支持的字段`);

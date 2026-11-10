@@ -9,9 +9,9 @@ export const deploymentSteps = [
   { id: 'verify', title: '验证集群', description: '等待 API Server、节点和系统 Pod 就绪，并加载集群连接。' },
 ];
 export async function deploymentScript(step) {
-  const policy = await readFile(new URL('./provision/runtime-policy.sh', import.meta.url), 'utf8');
-  const install = await readFile(new URL('./provision/install.sh', import.meta.url), 'utf8');
-  const bootstrap = await readFile(new URL('./provision/cluster.sh', import.meta.url), 'utf8');
+  const policy = await readFile(new URL('../provision/runtime-policy.sh', import.meta.url), 'utf8');
+  const install = await readFile(new URL('../provision/install.sh', import.meta.url), 'utf8');
+  const bootstrap = await readFile(new URL('../provision/cluster.sh', import.meta.url), 'utf8');
   const header = 'set -Eeuo pipefail\numask 077\nexport DEBIAN_FRONTEND=noninteractive\nexec 9>/run/kubescope-cluster.lock\nflock -n 9 || { echo "已有集群操作正在执行" >&2; exit 1; }\n';
   if (step === 'runtime') {
     const check = `

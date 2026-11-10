@@ -1,3 +1,4 @@
+import RegistriesPage from '../pages/RegistriesPage.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import api from '../lib/api.js';
 
@@ -16,10 +17,6 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
   const refresh = useRef(onRefresh);
   refresh.current = onRefresh;
   const previous = useRef(null);
-  const [registryIp, setRegistryIp] = useState('');
-  const [registryProtocol, setRegistryProtocol] = useState('https');
-  const [registryPort, setRegistryPort] = useState('443');
-  const [registryToken, setRegistryToken] = useState('');
   const [install, setInstall] = useState(setupOnly);
   const [viewedStep, setViewedStep] = useState(null);
   const [registrySkipped, setRegistrySkipped] = useState(false);
@@ -47,7 +44,7 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
         const result = await api('/api/cluster/service', token);
         if (cancelled) return;
         setTask(result.task);
-        if (result.task?.registryConfigured || (result.task?.action === 'registry' && result.task.status === 'succeeded')) setRegistryConfigured(true);
+        setRegistryConfigured(!!result.task?.registryConfigured || (result.task?.action === 'registry' && result.task.registryMode !== 'hosts' && result.task.status === 'succeeded'));
         if (result.task?.status === 'succeeded' && previous.current === 'running') setViewedStep(null);
         setSteps(result.steps || []);
         setDetectedAddress(result.localAddress || '');
@@ -66,17 +63,18 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
     poll();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [token, submitting]);
-  async function submit(action, image, selectedImage) {
+  async function submit(action, image, selectedImage, registryOptions) {
     if (action === 'registry') {
       if (!install) setRegistryDialogOpen(true);
     }
+    if (action === 'registry' && registryOptions?.mode !== 'hosts') { setRegistryConfigured(false); setRegistrySkipped(false); }
     setSubmitting(true); setError('');
     try {
-      const result = await api('/api/cluster/service', token, undefined, { method: 'POST', body: JSON.stringify({ action, ...(['images', 'pull', 'pull-all'].includes(action) ? { version, image } : {}), ...(action === 'step' ? { step: image, ...(selectedImage ? { image: selectedImage } : {}), ...(image === 'packages' ? { version } : {}), ...(image === 'init' ? { address } : {}) } : {}), ...((action === 'registry') ? { registry: { ip: registryIp, protocol: registryProtocol, port: Number(registryPort), token: registryToken } } : {}) }) });
+      const result = await api('/api/cluster/service', token, undefined, { method: 'POST', body: JSON.stringify({ action, ...(['images', 'pull', 'pull-all'].includes(action) ? { version, image } : {}), ...(action === 'step' ? { step: image, ...(selectedImage ? { image: selectedImage } : {}), ...(image === 'packages' ? { version } : {}), ...(image === 'init' ? { address } : {}) } : {}), ...((action === 'registry') ? registryOptions || {} : {}) }) });
       setTask(result.task);
-      if (action === 'registry') setRegistryToken('');
       previous.current = result.task?.status;
-    } catch (e) { setError(e.message); }
+      return result;
+    } catch (e) { setError(e.message); if (registryOptions) throw e; }
     finally { setSubmitting(false); }
   }
   const busy = submitting || task?.status === 'running';
@@ -88,10 +86,10 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
     const index = shownSteps.findIndex(step => step.id === id);
     return index >= 0 && shownSteps.slice(0, index).every(step => step.status === 'succeeded');
   };
-  const registryDone = registryConfigured || registryTask?.status === 'succeeded' || registrySkipped;
+  const registryDone = registryConfigured || (registryTask?.status === 'succeeded' && registryTask.registryMode !== 'hosts') || registrySkipped;
   const wizardSteps = shownSteps.flatMap(step => step.id === 'runtime' ? [step, {
     id: 'registry', title: '配置镜像仓库', description: '配置自建仓库的域名解析和 TLS 证书，也可跳过并使用默认镜像源。',
-    status: registryDone ? 'succeeded' : registryTask?.status || 'pending',
+    status: registryDone ? 'succeeded' : registryTask?.registryMode === 'hosts' && registryTask.status === 'succeeded' ? 'pending' : registryTask?.status || 'pending',
   }] : [step]);
   const currentIndex = Math.max(0, wizardSteps.findIndex(step => step.status !== 'succeeded'));
   const allDone = wizardSteps.length > 0 && wizardSteps.every(step => step.status === 'succeeded');
@@ -128,15 +126,10 @@ export default function ClusterService({ health, token, onRefresh, onSettings, s
         <div className="cluster-wizard-detail">
           <div className="cluster-step-heading"><div><span className="cluster-section-caption">第 {String(activeIndex + 1).padStart(2, '0')} 步</span><h3>{activeCopy?.title || activeStep?.title || '正在加载步骤…'}</h3></div><span className={`wizard-status wizard-status-${activeStep?.status || 'pending'}`} role="status">{allDone ? '部署完成' : statusLabel[activeStep?.status]}</span></div>
           <p className="wizard-step-description">{activeCopy?.description || activeStep?.description}</p>
-      {activeStep?.id === 'registry' && <form className="cluster-section cluster-registry-section" onSubmit={e => { e.preventDefault(); submit('registry'); }}>
-        <div className="cluster-section-title"><span className="cluster-section-icon" aria-hidden="true">01</span><div><span className="cluster-section-caption">镜像源配置</span><h3>自建镜像仓库</h3></div><span className="cluster-section-tag">可选</span></div>
-        <p>配置成功后自动进入下一步；工作节点需分别配置。</p>
-        <div className="cluster-fields"><label>镜像仓库 IPv4<input required value={registryIp} onChange={e => setRegistryIp(e.target.value)} placeholder="例如 192.168.1.20" disabled={busy} /></label>
-        <label>证书接口协议<select value={registryProtocol} onChange={e => { const protocol = e.target.value; setRegistryProtocol(protocol); setRegistryPort(current => current === (protocol === 'http' ? '443' : '80') ? (protocol === 'http' ? '80' : '443') : current); }} disabled={busy}><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-        <label>证书接口端口<input required type="number" min="1" max="65535" step="1" value={registryPort} onChange={e => setRegistryPort(e.target.value)} disabled={busy} /></label>
-        <label>证书导出 Token<input required type="password" autoComplete="off" value={registryToken} onChange={e => setRegistryToken(e.target.value)} disabled={busy} /></label>
-        </div><div className="cluster-form-actions"><button className="button primary" disabled={busy}>{busy ? '配置中…' : '保存并配置'}</button><button type="button" className="button wizard-secondary" disabled={busy} onClick={() => { setRegistrySkipped(true); setViewedStep(null); }}>使用默认镜像源</button>{registryTask && <button type="button" className="button wizard-secondary" onClick={() => setRegistryDialogOpen(true)}>查看日志</button>}</div>
-      </form>}
+      {activeStep?.id === 'registry' && <div className="cluster-section cluster-registry-section">
+        <RegistriesPage token={token} embedded externalBusy={busy} onConfigure={options => submit('registry', undefined, undefined, options)} />
+        <div className="cluster-form-actions"><button type="button" className="button wizard-secondary" disabled={busy} onClick={() => { setRegistrySkipped(true); setViewedStep(null); }}>使用默认镜像源</button>{registryTask && <button type="button" className="button wizard-secondary" onClick={() => setRegistryDialogOpen(true)}>查看日志</button>}</div>
+      </div>}
 
           {activeStep && activeStep.id !== 'registry' && <form onSubmit={e => { e.preventDefault(); if (!busy && canExecuteStep(activeStep.id)) submit('step', activeStep.id); }}>
             {activeStep.id === 'runtime' && <div className="wizard-setup-grid">

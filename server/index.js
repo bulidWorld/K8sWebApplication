@@ -1,6 +1,11 @@
 import http from "node:http";
-import { createRequestLogger } from "./request-logger.js";
-import { createClusterService } from "./cluster-service.js";
+import { createRegistryDistributor } from "./registry/registry-distribution.js";
+import { createRegistryMaintenance } from "./registry/registry-maintenance.js";
+import { createNodeHosts } from "./nodes/node-hosts.js";
+import { syncRegistryHosts } from './registry/registry-hosts-sync.js';
+import { createRegistryNodeAccess } from './registry/registry-node-access.js';
+import { createRequestLogger } from "./core/request-logger.js";
+import { createClusterService } from "./cluster/cluster-service.js";
 import {
   readFile,
   stat,
@@ -17,16 +22,17 @@ import {
   resourcePath,
   logsPath,
   managedKubeconfig,
-} from "./kubernetes.js";
-import { buildNodeLabelsPatch } from "./node-labels.js";
-import { buildPvDefinitionPatch } from './pv-definition.js';
-import { deletePod, deleteService } from './pod-delete.js';
-import { listCustomResources } from './custom-resources.js';
-import { buildModulePatch } from "./deployment-config.js";
-import { expansionClient } from "./expansion.js";
-import { validateApply, maxManifestBytes } from './apply.js';
-import { createEventHistory } from './event-history.js';
-import { createDeploymentPlans } from './deployment-plans.js';
+} from "./core/kubernetes.js";
+import { buildNodeLabelsPatch } from "./nodes/node-labels.js";
+import { buildPvDefinitionPatch } from './resources/pv-definition.js';
+import { buildResourceDefinitionPatch, resourceDefinitionTarget } from './resources/resource-definition.js';
+import { deletePod, deleteService, deletePersistentVolumeClaim } from './resources/pod-delete.js';
+import { listCustomResources } from './resources/custom-resources.js';
+import { buildModulePatch } from "./resources/deployment-config.js";
+import { expansionClient } from "./expansion/expansion.js";
+import { validateApply, maxManifestBytes } from './core/apply.js';
+import { createEventHistory } from './core/event-history.js';
+import { createDeploymentPlans } from './resources/deployment-plans.js';
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -51,23 +57,28 @@ function authorized(req, token) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 export function createApp({
-  kubernetes = createKubernetes(),
   token = process.env.K8S_WEB_TOKEN,
+  logger = createRequestLogger({ secrets: [token] }),
+  kubernetes = createKubernetes({ logger }),
   staticDirectory = root,
   auditFile = process.env.K8S_AUDIT_FILE ||
     fileURLToPath(new URL("../var/deployment-audit.jsonl", import.meta.url)),
   publicOrigin = process.env.K8S_PUBLIC_ORIGIN,
   expansion = expansionClient(),
   clusterService,
-  logger = createRequestLogger({ secrets: [token] }),
   eventHistory,
 } = {}) {
+  const registryNodeAccess = createRegistryNodeAccess({ kubernetes, expansion });
+  const registryDistributor = createRegistryDistributor({ kubernetes, logger, access: registryNodeAccess });
+  const registryMaintenance = createRegistryMaintenance({ distribute: registryDistributor, syncHosts: (record, onProgress) => syncRegistryHosts(record, { kubernetes, distribute: registryDistributor, onProgress }) });
+  const nodeHostsService = createNodeHosts({ kubernetes });
   const plans = createDeploymentPlans({ kubernetes });
   const history = eventHistory || createEventHistory({ kubernetes, logger });
   const cluster =
     clusterService ||
     createClusterService({
       logger,
+      resolveRegistry: (id, version) => registryMaintenance('RESOLVE', id, { version }),
       reload: async (file) => {
         await mkdir(path.dirname(managedKubeconfig), {
           recursive: true,
@@ -93,42 +104,98 @@ export function createApp({
         const update = url.pathname.match(
           /^\/api\/deployments\/([^/]+)\/([^/]+)\/modules\/(image|environment|resources|probes)$/,
         );
+        const registryRoute = url.pathname.match(/^\/api\/registries(?:\/(parse-certificate|save-status|[a-f0-9-]{36})(\/(?:distribute|certificates))?)?$/);
+        const registryNodeAccessRoute = url.pathname.match(/^\/api\/registry-node-access(?:\/(probe|[a-z0-9][a-z0-9-]{0,62}))?$/);
+        const nodeHosts = url.pathname.match(/^\/api\/nodes\/([^/]+)\/hosts$/);
         const nodeLabels = url.pathname.match(
           /^\/api\/nodes\/([^/]+)\/labels$/,
         );
         const podDelete = url.pathname.match(/^\/api\/pods\/([^/]+)\/([^/]+)$/);
         const serviceDelete = url.pathname.match(/^\/api\/services\/([^/]+)\/([^/]+)$/);
+        const pvcDelete = url.pathname.match(/^\/api\/persistentvolumeclaims\/([^/]+)\/([^/]+)$/);
         const pvDefinition = url.pathname.match(/^\/api\/persistentvolumes\/([^/]+)\/definition$/);
+        const resourceDefinition = url.pathname === '/api/resource-definition';
+        const configMapUpdate = url.pathname.match(/^\/api\/configmaps\/([^/]+)\/([^/]+)\/data$/);
         const expansionRoute = url.pathname.match(
           /^\/api\/expansion\/(settings|discover|probe|registry\/prepare|hosts\/(?:compare|apply)|targets(?:\/[a-z0-9][a-z0-9-]{0,62})?|tasks(?:\/[a-f0-9-]{36}(?:\/start)?)?)$/,
         );
         const clusterRoute = url.pathname === "/api/cluster/service";
         const applyRoute = url.pathname === "/api/manifests/apply";
-        const plansRoute = url.pathname === '/api/deployment-plans' || /^\/api\/deployment-plans\/[a-f0-9-]{36}$/.test(url.pathname);
+        const plansRoute = url.pathname === '/api/deployment-plans' || /^\/api\/deployment-plans\/[a-f0-9-]{36}(?:\/retry)?$/.test(url.pathname);
         if (
           req.method !== "GET" &&
-          !(req.method === "DELETE" && (podDelete || serviceDelete)) &&
-          !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute || plansRoute)) &&
-          !(req.method === "PATCH" && (update || nodeLabels || pvDefinition))
+          !(req.method === "DELETE" && (podDelete || serviceDelete || pvcDelete || registryRoute || registryNodeAccessRoute)) &&
+          !(req.method === "POST" && (expansionRoute || clusterRoute || applyRoute || plansRoute || nodeHosts || registryRoute || registryNodeAccessRoute)) &&
+          !(req.method === "PATCH" && (update || nodeLabels || pvDefinition || resourceDefinition || configMapUpdate || registryRoute))
         )
           return json(res, 405, { error: "不支持该接口的请求方法" });
         if (url.pathname.startsWith("/api/")) {
           if (!authorized(req, token))
             return json(res, 401, { error: "请输入有效的访问令牌" });
+          if (registryNodeAccessRoute) {
+            if (!token) return json(res, 403, { error: '节点登录配置要求访问令牌' });
+            const suffix = registryNodeAccessRoute[1];
+            if (!(req.method === 'GET' && !suffix || req.method === 'POST' && (!suffix || suffix === 'probe' || suffix === 'from-expansion') || req.method === 'DELETE' && suffix && !['probe', 'from-expansion'].includes(suffix))) return json(res, 405, { error: '不支持该操作' });
+            let body;
+            if (req.method !== 'GET') {
+              if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: '节点登录配置请求必须来自当前页面' });
+              let source = '';
+              for await (const chunk of req) { source += chunk; if (Buffer.byteLength(source) > 16384) return json(res, 413, { error: '请求过大' }); }
+              if (req.method === 'POST') try { body = JSON.parse(source); } catch { return json(res, 400, { error: '无效 JSON' }); }
+            }
+            const result = req.method === 'GET' ? await registryNodeAccess.list() : req.method === 'DELETE' ? await registryNodeAccess.remove(suffix) : suffix === 'probe' ? await registryNodeAccess.probe(body) : suffix === 'from-expansion' ? await registryNodeAccess.importExpansion(body) : await registryNodeAccess.save(body);
+            logger.write('registry_node_access', { method: req.method, node: body?.nodeName || suffix || '' });
+            return json(res, 200, result);
+          }
+          if (registryRoute) {
+            const parsing = registryRoute[1] === 'parse-certificate';
+            const savingStatus = registryRoute[1] === 'save-status';
+            const id = parsing || savingStatus ? undefined : registryRoute[1];
+            const distributing = registryRoute[2] === '/distribute';
+            const importing = registryRoute[2] === '/certificates';
+            if (!(savingStatus ? ['GET'] : parsing || importing ? ['POST'] : distributing ? ['GET', 'POST'] : ['GET', ...(id ? ['PATCH', 'DELETE'] : ['POST'])]).includes(req.method)) return json(res, 405, { error: '不支持该操作' });
+            if (!token) return json(res, 403, { error: '仓库维护要求配置访问令牌' });
+            let body;
+            if (req.method !== 'GET') {
+              if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: '仓库修改请求必须来自当前页面' });
+              let text = '';
+              for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 300000) return json(res, 413, { error: '请求过大' }); }
+              try { body = JSON.parse(text); } catch { return json(res, 400, { error: '无效 JSON' }); }
+            }
+            const result = await registryMaintenance(savingStatus ? 'SAVE_STATUS' : parsing ? 'PARSE_CERTIFICATE' : importing ? 'IMPORT_CERTIFICATES' : distributing ? (req.method === 'GET' ? 'DISTRIBUTION_STATUS' : 'DISTRIBUTE') : req.method, id, req.method === 'GET' && (distributing || savingStatus) ? { taskId: url.searchParams.get('task') } : body);
+            logger.write('registry_maintenance', { method: req.method, id: id || result.item?.id });
+            return json(res, 200, result);
+          }
+          if (nodeHosts) {
+            if (!['GET', 'POST'].includes(req.method)) return json(res, 405, { error: '请使用 GET 或 POST' });
+            if (!token) return json(res, 403, { error: '管理节点 hosts 要求配置访问令牌' });
+            let body;
+            if (req.method === 'POST') {
+              if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: 'hosts 修改请求必须来自当前页面' });
+              let text = '';
+              for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 100000) return json(res, 413, { error: '请求过大' }); }
+              try { body = JSON.parse(text); } catch { return json(res, 400, { error: '无效 JSON' }); }
+              if (!body || typeof body !== 'object') return json(res, 400, { error: '无效请求' });
+            }
+            const result = await nodeHostsService(decodeURIComponent(nodeHosts[1]), body);
+            logger.write('node_hosts', { node: decodeURIComponent(nodeHosts[1]), operation: body?.change, results: result.results });
+            return json(res, 200, result);
+          }
           if (pvDefinition) {
             if (req.method !== 'PATCH') return json(res, 405, { error: '请使用 PATCH' });
             if (!token) return json(res, 403, { error: '编辑 PV 定义要求配置访问令牌' });
             if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
               return json(res, 403, { error: '编辑 PV 定义请求必须来自当前页面' });
           }
-          if (podDelete || serviceDelete) {
-            const match = podDelete || serviceDelete;
-            const label = podDelete ? 'Pod' : 'Service';
+          if (podDelete || serviceDelete || pvcDelete) {
+            const match = podDelete || serviceDelete || pvcDelete;
+            const label = podDelete ? 'Pod' : serviceDelete ? 'Service' : 'PVC';
             if (req.method !== 'DELETE') return json(res, 405, { error: '请使用 DELETE' });
             if (!token) return json(res, 403, { error: `删除 ${label} 要求配置访问令牌` });
             if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`))
               return json(res, 403, { error: `删除 ${label} 请求必须来自当前页面` });
-            const resource = await (podDelete ? deletePod : deleteService)(req, kubernetes, match[1], match[2]);
+            const remove = podDelete ? deletePod : serviceDelete ? deleteService : deletePersistentVolumeClaim;
+            const resource = await remove(req, kubernetes, match[1], match[2]);
             return json(res, 200, { resource });
           }
           if (applyRoute) {
@@ -157,6 +224,8 @@ export function createApp({
             if (!token) return json(res, 403, { error: '部署计划执行要求配置访问令牌' });
             if (req.method === 'POST') {
               if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: '部署计划请求必须来自当前页面' });
+              const retryMatch = url.pathname.match(/^\/api\/deployment-plans\/([a-f0-9-]{36})\/retry$/);
+              if (retryMatch) return json(res, 202, await plans('RETRY', retryMatch[1]));
               if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') return json(res, 415, { error: '请使用 application/json' });
               const chunks = []; let size = 0;
               for await (const chunk of req) { size += chunk.length; if (size > 70 * 1024 * 1024) return json(res, 413, { error: 'tar 文件不能超过 50 MiB' }); chunks.push(chunk); }
@@ -236,6 +305,40 @@ export function createApp({
               200,
               await expansion("GET", `/${expansionRoute[1]}`),
             );
+          }
+          if (configMapUpdate) {
+            if (req.method !== 'PATCH') return json(res, 405, { error: '请使用 PATCH' });
+            if (!token) return json(res, 403, { error: '编辑 ConfigMap 要求配置访问令牌' });
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: 'ConfigMap 修改请求必须来自当前页面' });
+            if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') return json(res, 415, { error: '请使用 application/json' });
+            let source = '';
+            for await (const chunk of req) { source += chunk; if (Buffer.byteLength(source) > 1024 * 1024) return json(res, 413, { error: '配置请求不能超过 1 MiB' }); }
+            let body; try { body = JSON.parse(source); } catch { return json(res, 400, { error: '无效 JSON' }); }
+            if (!body || typeof body.uid !== 'string' || typeof body.resourceVersion !== 'string' || !body.data || typeof body.data !== 'object' || Array.isArray(body.data) || Object.entries(body.data).some(([key, value]) => !/^[a-zA-Z0-9._-]+$/.test(key) || typeof value !== 'string')) return json(res, 400, { error: '配置项格式不正确' });
+            const target = resourcePath('configmaps', configMapUpdate[1], configMapUpdate[2]);
+            const current = await kubernetes.request(target);
+            if (current.metadata.uid !== body.uid || current.metadata.resourceVersion !== body.resourceVersion) return json(res, 409, { error: 'ConfigMap 已发生变化，请重新加载后编辑' });
+            const patch = [{ op: 'test', path: '/metadata/uid', value: body.uid }, { op: 'test', path: '/metadata/resourceVersion', value: body.resourceVersion }, { op: current.data === undefined ? 'add' : 'replace', path: '/data', value: body.data }];
+            const resource = await kubernetes.request(target, true, patch);
+            logger.write('configmap_update', { namespace: configMapUpdate[1], name: configMapUpdate[2], resourceVersion: body.resourceVersion });
+            return json(res, 200, { resource });
+          }
+          if (req.method === "PATCH" && resourceDefinition) {
+            if (!token) return json(res, 403, { error: '编辑资源定义要求配置访问令牌' });
+            if (req.headers.origin !== (publicOrigin || `${req.socket.encrypted ? 'https' : 'http'}://${req.headers.host}`)) return json(res, 403, { error: '编辑资源定义请求必须来自当前页面' });
+            if ((req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') return json(res, 415, { error: '请使用 application/json' });
+            const chunks = []; let size = 0;
+            for await (const chunk of req) { size += chunk.length; if (size > 132 * 1024) return json(res, 413, { error: '定义请求不能超过 128 KiB' }); chunks.push(chunk); }
+            let body; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: '请求不是有效 JSON' }); }
+            const { load, JSON_SCHEMA } = await import('js-yaml');
+            let manifest; try { manifest = load(body.manifest, { schema: JSON_SCHEMA }); } catch (error) { return json(res, 400, { error: `定义格式不正确：${error.message}` }); }
+            if (!manifest?.kind || !manifest.apiVersion || !manifest.metadata?.name) return json(res, 400, { error: '定义必须包含 apiVersion、kind 和 metadata.name' });
+            if (typeof body.uid !== 'string' || typeof body.resourceVersion !== 'string') return json(res, 400, { error: '请基于重新加载的实例编辑；请求缺少 UID 或资源版本校验信息' });
+            const target = await resourceDefinitionTarget(kubernetes, manifest, body.namespace || '');
+            const current = await kubernetes.request(target);
+            const patch = buildResourceDefinitionPatch(current, body);
+            const result = await kubernetes.request(target, true, patch);
+            return json(res, 200, { resource: result });
           }
           if (req.method === "PATCH" && (update || nodeLabels || pvDefinition)) {
             if (
@@ -360,6 +463,8 @@ export function createApp({
             return json(res, 200, {
               logs: await kubernetes.request(logsPath(url.searchParams), false),
             });
+          if (url.pathname === '/api/operation-logs')
+            return json(res, 200, { items: await logger.list?.(300, 'kubernetes_api') || [] });
           if (url.pathname === '/api/events/history')
             return json(res, 200, { items: history.list() });
           const customResources = url.pathname.match(/^\/api\/custom-resources\/([^/]+)(\/count)?$/);

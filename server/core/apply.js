@@ -41,14 +41,21 @@ function parseManifest(text) {
   function visit(item, depth = 0) {
     if (depth > 30 || resources.length >= 100) fail('单次最多应用 100 个资源，且嵌套不能超过 30 层');
     if (!object(item)) fail('YAML 文档必须是资源对象');
-    if (item.kind === 'List' && item.apiVersion === 'v1') {
-      if (!Array.isArray(item.items)) fail('List.items 必须是数组');
+    // kubectl apply accepts both the generic v1 List and typed Kubernetes
+    // list objects such as RoleBindingList. Apply each member as its own
+    // resource because list kinds themselves are not writable API resources.
+    const genericList = item.kind === 'List' && item.apiVersion === 'v1';
+    const typedList = typeof item.kind === 'string' && item.kind.endsWith('List')
+      && Array.isArray(item.items) && !item.metadata?.name;
+    if (genericList || typedList) {
+      if (!Array.isArray(item.items)) fail(`${item.kind}.items 必须是数组`);
       item.items.forEach(child => visit(child, depth + 1));
       return;
     }
-    if (typeof item.apiVersion !== 'string' || !item.apiVersion.split('/').every(segment) || item.apiVersion.split('/').length > 2 || !segment(item.kind) || !segment(item.metadata?.name))
+    // Keep only the fields needed to route the request. Kubernetes validates
+    // their syntax and resource-specific rules, including names containing ':'.
+    if (typeof item.apiVersion !== 'string' || !item.apiVersion || typeof item.kind !== 'string' || !item.kind || typeof item.metadata?.name !== 'string' || !item.metadata.name)
       fail('每个资源必须包含有效的 apiVersion、kind 和 metadata.name');
-    if (item.metadata.namespace !== undefined && !segment(item.metadata.namespace)) fail('命名空间格式不正确');
     // Reject cycles from YAML aliases and detach alias references.
     try { resources.push(JSON.parse(JSON.stringify(item))); }
     catch { fail('YAML 不能包含循环引用'); }
@@ -67,19 +74,19 @@ export async function applyManifest(request, body, defaultNamespace = 'default')
   for (const resource of resources) {
     const label = `${resource.kind}/${resource.metadata.name}`;
     try {
-      const prefix = resource.apiVersion.includes('/') ? `/apis/${resource.apiVersion}` : `/api/${resource.apiVersion}`;
+      const versionPath = resource.apiVersion.split('/').map(encodeURIComponent).join('/');
+      const prefix = resource.apiVersion.includes('/') ? `/apis/${versionPath}` : `/api/${versionPath}`;
       if (!discovery.has(prefix)) discovery.set(prefix, await request(prefix));
       const info = discovery.get(prefix).resources?.find(item => item.kind === resource.kind && !item.name.includes('/'));
       if (!info || !segment(info.name)) throw new Error('集群未提供该资源 API，请检查 apiVersion、kind 或 CRD 是否就绪');
       let collection = prefix;
       if (info.namespaced) {
         const namespace = resource.metadata.namespace || defaultNamespace;
-        if (!segment(namespace)) fail('默认命名空间格式不正确');
         resource.metadata.namespace = namespace;
-        collection += `/namespaces/${namespace}`;
+        collection += `/namespaces/${encodeURIComponent(namespace)}`;
       } else if (resource.metadata.namespace) fail('集群级资源不能指定 namespace');
       collection += `/${info.name}`;
-      const target = `${collection}/${resource.metadata.name}`;
+      const target = `${collection}/${encodeURIComponent(resource.metadata.name)}`;
       if (body.serverSide) {
         await request(`${target}?fieldManager=kubescope&fieldValidation=Strict`, resource, { method: 'PATCH', contentType: 'application/apply-patch+yaml' });
         output.push(`${label} serverside-applied`);

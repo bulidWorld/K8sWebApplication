@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, createHash } from 'node:crypto';
 import { once } from 'node:events';
 import ssh2 from 'ssh2';
-import { probeHost, remoteSsh } from '../server/remote-ssh.js';
-import { sudoInput } from '../server/expansion-executor.js';
+import { probeHost, remoteSsh } from '../server/expansion/remote-ssh.js';
+import { sudoInput } from '../server/expansion/expansion-executor.js';
 
 test('SSH 协议验证：探测不发送密码，固定指纹认证，密码和脚本经加密通道传输', async () => {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

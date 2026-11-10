@@ -1,16 +1,18 @@
+import { configureSavedRegistry } from '../registry/registry-distribution.js';
+import { registryHostOptions } from '../registry/registry-hosts.js';
 import { deploymentSteps, deploymentScript } from './cluster-steps.js';
 import { discoverImages, validateVersion, flannelManifest } from './cluster-images.js';
-import { configureRegistry } from './registry-service.js';
-import { validateRegistry } from './registry-config.js';
+import { configureRegistry } from '../registry/registry-service.js';
+import { validateRegistry } from '../registry/registry-config.js';
 import { readFile, access, mkdir, writeFile, rename } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
-import { redactLog, createLogCollector } from './expansion-logs.js';
-import { command } from './expansion-executor.js';
+import { redactLog, createLogCollector } from '../expansion/expansion-logs.js';
+import { command } from '../expansion/expansion-executor.js';
 import { detectLocalAddress } from './local-address.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-export function createClusterService({ logger, run = command, configure = configureRegistry, directory = new URL('../var/cluster/', import.meta.url), exists = async file => { try { await access(file); return true; } catch (e) { if (e.code !== 'ENOENT') throw e; return false; } }, reload = () => {}, fetchManifest = fetch, isRoot = () => process.getuid?.() === 0 } = {}) {
+export function createClusterService({ logger, resolveRegistry, configureSaved = configureSavedRegistry, run = command, configure = configureRegistry, directory = new URL('../../var/cluster/', import.meta.url), exists = async file => { try { await access(file); return true; } catch (e) { if (e.code !== 'ENOENT') throw e; return false; } }, reload = () => {}, fetchManifest = fetch, isRoot = () => process.getuid?.() === 0 } = {}) {
   let task = null;
   let initialized;
   const state = new URL('task.json', directory instanceof URL ? directory : new URL(`file://${directory}/`));
@@ -93,7 +95,16 @@ export function createClusterService({ logger, run = command, configure = config
       if (!images.length || imageVersion !== expectedVersion || (body.action === 'pull' && !selectedImage) || (body.image !== undefined && !selectedImage) || images.some(item => !/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,511}$/.test(item.image))) fail('请先解析当前版本镜像，再选择列表中的镜像拉取');
     }
     let env = `export FLANNEL_MANIFEST='${flannelManifest}'\n`;
-    const registry = body.registry !== undefined || body.action === 'registry' ? validateRegistry(body.registry) : undefined;
+    const savedRegistry = body.registryId !== undefined ? await (async () => {
+      if (!resolveRegistry || typeof body.registryId !== 'string') fail('请选择已保存的镜像仓库');
+      if (body.action !== 'registry') fail('保存的仓库配置请在镜像仓库步骤应用');
+      if (body.registry !== undefined) fail('不能同时提交旧版仓库配置和保存的仓库');
+      if (body.confirm !== true) fail('请确认本机仓库配置');
+      const record = await resolveRegistry(body.registryId, body.registryVersion);
+      registryHostOptions(record, body);
+      return record;
+    })() : undefined;
+    const registry = !savedRegistry && (body.registry !== undefined || body.action === 'registry') ? validateRegistry(body.registry) : undefined;
     if (body.action === 'install') {
       if (!/^1\.(3[1-5])\.\d{1,3}$/.test(body.version || '')) fail('请输入 Kubernetes 1.31–1.35 的完整补丁版本');
       const local = Object.values(networkInterfaces()).flat().some(n => n.family === 'IPv4' && !n.internal && n.address === body.address);
@@ -102,7 +113,7 @@ export function createClusterService({ logger, run = command, configure = config
       env += `export K8S_VERSION='${body.version}'\nexport TARGET_IP='${body.address}'\nexport CONTAINERD_VERSION=auto\n`;
     } else if (body.action === 'start' && !await exists('/etc/kubernetes/manifests/kube-apiserver.yaml')) fail('未发现本机 kubeadm 控制平面，请选择安装 K8s 集群服务', 409);
     if (deployment) env += `${deployment.version ? `export K8S_VERSION='${deployment.version}'\n` : ''}${deployment.address ? `export TARGET_IP='${deployment.address}'\n` : ''}export CONTAINERD_VERSION=auto\n`;
-    task = { registryConfigured: task?.registryConfigured || false, deployment, step: currentStep?.id, action: body.action, ...(parsingImages ? { version: deployment?.version || body.version, images: [] } : { version: imageVersion, images }), status: 'running', logs: [], createdAt: new Date().toISOString() };
+    task = { registryConfigured: body.action === 'registry' && body.mode !== 'hosts' ? false : task?.registryConfigured || false, registryId: savedRegistry?.id || task?.registryId, deployment, step: currentStep?.id, action: body.action, registryMode: savedRegistry ? body.mode || 'configure' : undefined, ...(parsingImages ? { version: deployment?.version || body.version, images: [] } : { version: imageVersion, images }), status: 'running', logs: [], createdAt: new Date().toISOString() };
     if (currentStep) { currentStep.status = 'running'; currentStep.logs = []; delete currentStep.error; delete currentStep.finishedAt; }
     await save();
     const snapshot = task;
@@ -112,17 +123,20 @@ export function createClusterService({ logger, run = command, configure = config
       while (snapshot.logs.join('').length > 48000) snapshot.logs.shift();
     });
     setImmediate(async () => {
-      const configureLocalRegistry = () => configure(registry, {
+      const configureLocalRegistry = () => (savedRegistry ? configureSaved(savedRegistry, body, {
+        log: message => collector.feed('stdout', message + '\n'),
+        run: (file, args) => run(file, args, '', 120000, { onOutput: (stream, chunk) => { if (stream !== 'stdout' || file !== 'containerd') collector.feed(stream, chunk); } }),
+      }) : configure(registry, {
         log: message => collector.feed('stdout', message + '\n'),
         run: (file, args) => run(file, args, '', 120000, { onOutput: (stream, chunk) => {
           // config dump may contain existing registry credentials; retain only diagnostics.
           if (stream !== 'stdout' || file !== 'containerd') collector.feed(stream, chunk);
         } }),
-      });
+      }));
       try {
         if (body.action === 'registry') {
           await configureLocalRegistry();
-          snapshot.registryConfigured = true;
+          if (body.mode !== 'hosts') snapshot.registryConfigured = true;
         } else if (parsingImages) {
           const parsed = await discoverImages(snapshot.version, (file, args) => run(file, args, '', 120000, { onOutput: (stream, chunk) => collector.feed(stream, chunk) }), fetchManifest);
           snapshot.images = parsed.map(image => {
@@ -183,9 +197,9 @@ ctr --address /run/containerd/containerd.sock --namespace k8s.io images pull --h
           currentStep.status = 'succeeded';
           currentStep.finishedAt = new Date().toISOString();
         } else {
-          const policy = await readFile(new URL('./provision/runtime-policy.sh', import.meta.url), 'utf8');
-          const install = body.action === 'install' ? await readFile(new URL('./provision/install.sh', import.meta.url), 'utf8') : '';
-          const bootstrap = await readFile(new URL('./provision/cluster.sh', import.meta.url), 'utf8');
+          const policy = await readFile(new URL('../provision/runtime-policy.sh', import.meta.url), 'utf8');
+          const install = body.action === 'install' ? await readFile(new URL('../provision/install.sh', import.meta.url), 'utf8') : '';
+          const bootstrap = await readFile(new URL('../provision/cluster.sh', import.meta.url), 'utf8');
           // install.sh runs only after the bootstrap's checks and lock acquisition.
           const script = env + `export CLUSTER_ACTION='${body.action}'\n` + policy + '\n' + bootstrap.replace('# INSTALL_RUNTIME', install);
           const execute = input => run('/bin/bash', ['-s'], input, 30 * 60 * 1000, { onOutput: (stream, chunk) => collector.feed(stream, chunk) });

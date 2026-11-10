@@ -1,3 +1,5 @@
+import RegistriesPage from './pages/RegistriesPage.jsx';
+import NodeConfigPage from './pages/NodeConfigPage.jsx';
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import api from "./lib/api.js";
 import { labels } from "./lib/resources.js";
@@ -6,6 +8,8 @@ import useClusterData from "./hooks/useClusterData.js";
 import ResourceDialog from "./components/ResourceDialog.jsx";
 import OverviewPage from "./pages/OverviewPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
+import CustomResourcesPage from './pages/CustomResourcesPage.jsx';
+import OperationLogsPage from './pages/OperationLogsPage.jsx';
 
 import ClusterService from "./components/ClusterService.jsx";
 import ManifestApply from './components/ManifestApply.jsx';
@@ -90,7 +94,7 @@ export default function App() {
     if (commitRoute(routeHash(next, module))) resetNavigation();
   }
   function changeModal(next) { return commitRoute(routeHash(section, deploymentModule, next)); }
-  function open(kind, item, initialTab = 'detail') {
+  function open(kind, item, initialTab = kind === 'configmaps' ? 'config' : 'detail') {
     if (changeModal({ dialog: 'resource', kind, name: item.metadata.name, ...(item.metadata.namespace ? { namespace: item.metadata.namespace } : {}), tab: initialTab })) {
       setSelection({ kind, item }); setSelectionError('');
     }
@@ -242,6 +246,10 @@ export default function App() {
               <p>
                 {setupOnly ? "尚未连接集群。完成下方部署，或检测已有集群连接。" : section === "overview"
                   ? "掌握集群运行状态，让每一次运维都有据可循。"
+                  : section === 'registries'
+                    ? '管理仓库备用入口、证书与节点下发。'
+                  : section === 'nodeconfig'
+                    ? '维护节点 SSH 登录方式，供仓库证书直接下发到宿主机。'
                   : section === 'deployments' && deploymentModule
                     ? '先选择目标 Deployment，再编辑并单独保存此配置模块。'
                     : `查看和检索${labels[section]}，点击资源名称查看完整配置。`}
@@ -302,7 +310,7 @@ export default function App() {
             </div>
           )}
           {!setupOnly && <>
-          {section !== "overview" && <div className="scope-bar">
+          {section !== "overview" && section !== "registries" && section !== "nodeconfig" && <div className="scope-bar">
             {section !== "nodes" && <div className="scope-select">
               <span>▦</span>
               <label htmlFor="namespace">命名空间</label>
@@ -310,6 +318,7 @@ export default function App() {
                 id="namespace"
                 value={namespace}
                 onChange={(e) => {
+                  if (navigationGuard.current && !navigationGuard.current()) return;
                   setNamespace(e.target.value);
                   setStatusFilter("");
                 }}
@@ -341,8 +350,16 @@ export default function App() {
             </div>
           </div>}
           {section === "nodes" && <NodeExpansion modal={modal} onModalChange={changeModal} registerNavigationGuard={registerNavigationGuard} token={token} onUpdated={() => setRefresh(n => n + 1)} />}
-          {section === "overview" ? (
+          {section === "registries" ? (
+            <RegistriesPage token={token} registerNavigationGuard={registerNavigationGuard} />
+          ) : section === "nodeconfig" ? (
+            <NodeConfigPage token={token} registerNavigationGuard={registerNavigationGuard} />
+          ) : section === "overview" ? (
             <OverviewPage data={data} errors={errors} loading={loading} namespace={namespace} navigate={navigate} open={open} />
+          ) : section === 'customresources' ? (
+            <CustomResourcesPage token={token} namespace={namespace} registerNavigationGuard={registerNavigationGuard} onUpdated={() => setRefresh(n => n + 1)} />
+          ) : section === 'operationlogs' ? (
+            <OperationLogsPage token={token} />
           ) : (
             <ResourcesPage token={token} section={section} deploymentModule={deploymentModule} data={data} errors={errors} loading={loading} namespace={namespace} search={search} setSearch={setSearch} statuses={statuses} statusFilter={statusFilter} setStatusFilter={setStatusFilter} setRefresh={setRefresh} open={open} />
           )}

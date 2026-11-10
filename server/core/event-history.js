@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const defaultFile = fileURLToPath(new URL('../var/events/history.jsonl', import.meta.url));
+const defaultFile = fileURLToPath(new URL('../../var/events/history.jsonl', import.meta.url));
 const keyOf = event => event.metadata?.uid || `${event.metadata?.namespace || ''}/${event.metadata?.name || ''}`;
 const observedAt = event => event.series?.lastObservedTime || event.lastTimestamp || event.eventTime || event.metadata?.creationTimestamp;
 

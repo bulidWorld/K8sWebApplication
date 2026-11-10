@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectLocalAddress } from '../server/local-address.js';
+import { detectLocalAddress } from '../server/cluster/local-address.js';
 
 const ipv4 = address => ({ family: 'IPv4', internal: false, address });
 const header = 'Iface Destination Gateway Flags RefCnt Use Metric Mask';

@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api.js';
 import download from '../lib/download.js';
 import { age } from '../lib/formatters.js';
+import ResourceDefinition from './ResourceDefinition.jsx';
 
-export default function CustomResources({ crd, token }) {
+export default function CustomResources({ crd, token, onDirty, onUpdated }) {
   const [namespace, setNamespace] = useState('');
   const [namespaceInput, setNamespaceInput] = useState('');
   const [search, setSearch] = useState('');
@@ -12,6 +13,7 @@ export default function CustomResources({ crd, token }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [editing, setEditing] = useState(false);
   const name = crd.metadata.name;
   const namespaced = crd.spec?.scope === 'Namespaced';
   useEffect(() => {
@@ -19,7 +21,7 @@ export default function CustomResources({ crd, token }) {
     setBusy(true);
     setError('');
     setResult(null);
-    setSelected(null);
+    setSelected(null); setEditing(false);
     const query = new URLSearchParams(namespaced && namespace ? { namespace } : {});
     api(`/api/custom-resources/${encodeURIComponent(name)}?${query}`, token, controller.signal)
       .then(body => { if (!controller.signal.aborted) setResult(body); })
@@ -52,8 +54,8 @@ export default function CustomResources({ crd, token }) {
         <div className="table-footer">共 {items.length} 项资源<span>只读访问 · Kubernetes API</span></div>
       </>}
     {cleaned && <>
-      <div className="detail-summary"><strong>{selected.metadata.namespace ? `${selected.metadata.namespace}/` : ''}{selected.metadata.name}</strong><div className="row-actions"><button className="button" onClick={() => download(JSON.stringify(cleaned, null, 2), `${selected.metadata.name}.json`)}>下载 JSON ↓</button><button className="button" onClick={() => setSelected(null)}>收起详情</button></div></div>
-      <pre className="code">{JSON.stringify(cleaned, null, 2)}</pre>
+      <div className="detail-summary"><strong>{selected.metadata.namespace ? `${selected.metadata.namespace}/` : ''}{selected.metadata.name}</strong><div className="row-actions"><button className="button" onClick={() => setEditing(value => !value)}>{editing ? '查看 JSON' : '编辑定义'}</button><button className="button" onClick={() => download(JSON.stringify(cleaned, null, 2), `${selected.metadata.name}.json`)}>下载 JSON ↓</button><button className="button" onClick={() => { setSelected(null); setEditing(false); }}>收起详情</button></div></div>
+      {editing ? <ResourceDefinition item={selected} schema={result?.schema} token={token} onDirty={onDirty} onResourceUpdated={value => { setSelected(value); onUpdated?.(value); }} /> : <pre className="code">{JSON.stringify(cleaned, null, 2)}</pre>}
     </>}
   </>;
 }

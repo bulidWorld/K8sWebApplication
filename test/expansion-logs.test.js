@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createLogCollector, redactLog } from '../server/expansion-logs.js';
-import { createExecutor, command } from '../server/expansion-executor.js';
+import { createLogCollector, redactLog } from '../server/expansion/expansion-logs.js';
+import { createExecutor, command } from '../server/expansion/expansion-executor.js';
 
 test('日志跨包脱敏、UTF8、token、私钥、超长行与无换行尾部', () => {
   assert(!redactLog('{"token":"arbitrary-api-secret"}').includes('arbitrary-api-secret'));

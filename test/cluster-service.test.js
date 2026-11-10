@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir, networkInterfaces } from 'node:os';
 import path from 'node:path';
-import { createClusterService } from '../server/cluster-service.js';
+import { createClusterService } from '../server/cluster/cluster-service.js';
 import { createApp } from '../server/index.js';
 
 test('API Server 端口缺失时提供集群安装提示，认证错误不误判为缺少集群', async () => {
@@ -115,5 +115,27 @@ test('带仓库配置的完整安装在安装运行时后直接调用 JS，随�
     for (let i = 0; i < 100 && (await service('GET')).task.status === 'running'; i++) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal((await service('GET')).task.status, 'succeeded');
     assert.deepEqual(events, ['runtime', 'js', 'init']);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('新建集群复用已保存仓库，无需连接 Kubernetes，并保留部署进度', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'saved-registry-cluster-'));
+  const calls = [];
+  const service = createClusterService({ directory, isRoot: () => true, run: async () => {},
+    resolveRegistry: async (id, version) => { assert.equal(id, 'saved'); assert.equal(version, 'v1'); return { id, name: 'saved', url: 'https://lingxi.image.io', hostsIp: '192.168.100.133' }; },
+    configureSaved: async (record, body) => { calls.push(body.mode); assert.equal(record.id, 'saved'); assert.equal(body.mapHosts, true); },
+  });
+  async function done() { for (let i = 0; i < 100 && (await service('GET')).task.status === 'running'; i++) await new Promise(resolve => setTimeout(resolve, 5)); }
+  try {
+    await service('POST', { action: 'step', step: 'runtime' }); await done();
+    const options = { action: 'registry', registryId: 'saved', registryVersion: 'v1', domains: ['ghcr.io'], mapHosts: true, confirm: true };
+    await assert.rejects(service('POST', { ...options, confirm: false }), /确认/);
+    await service('POST', { ...options, mode: 'hosts' }); await done();
+    assert.equal((await service('GET')).task.registryConfigured, false);
+    await service('POST', { ...options, mode: 'configure' }); await done();
+    const task = (await service('GET')).task;
+    assert.equal(task.registryConfigured, true); assert.equal(task.registryId, 'saved');
+    assert.equal(task.deployment.steps.find(step => step.id === 'runtime').status, 'succeeded');
+    assert.deepEqual(calls, ['hosts', 'configure']);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

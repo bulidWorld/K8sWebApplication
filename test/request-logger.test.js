@@ -4,7 +4,21 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createRequestLogger } from '../server/request-logger.js';
+import { createRequestLogger } from '../server/core/request-logger.js';
+
+test('操作记录先筛选再限制条数，保存调用不被普通请求日志挤出', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'operation-log-'));
+  try {
+    const logger = createRequestLogger({ directory });
+    logger.write('kubernetes_api', { interface: 'PATCH /apis/example/v1/resources/demo', success: true });
+    for (let index = 0; index < 350; index++) logger.write('request_completed', { path: '/api/operation-logs' });
+    logger.write('kubernetes_api', { interface: 'GET /api/v1/events', success: true });
+    const operations = await logger.list(300, 'kubernetes_api');
+    assert.deepEqual(operations.map(record => record.interface), ['GET /api/v1/events', 'PATCH /apis/example/v1/resources/demo']);
+    assert.equal((await logger.list(1, 'kubernetes_api'))[0].interface, 'GET /api/v1/events');
+    assert.equal((await logger.list(300)).length, 300);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('请求记录关联编号、耗时、失败堆栈并隐藏凭证，断连只记录一次', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'request-log-'));
